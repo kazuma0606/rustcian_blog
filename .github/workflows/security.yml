@@ -3,6 +3,7 @@ name: Security
 on:
   push:
     branches:
+      - master
       - main
       - develop
       - "feature/**"
