@@ -1,0 +1,28 @@
+[package]
+name = "rustacian_blog_backend"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+actix-files.workspace = true
+actix-web.workspace = true
+async-trait.workspace = true
+base64 = "0.22.1"
+chrono.workspace = true
+dotenvy.workspace = true
+hmac = "0.12.1"
+pulldown-cmark.workspace = true
+reqwest = { version = "0.12.24", default-features = false, features = ["json", "rustls-tls"] }
+serde.workspace = true
+serde_json.workspace = true
+serde_yaml.workspace = true
+sha2 = "0.10.9"
+thiserror.workspace = true
+tokio.workspace = true
+urlencoding.workspace = true
+rustacian_blog_core = { path = "../core" }
+rustacian_blog_frontend = { path = "../frontend" }
+
+[dev-dependencies]
+tempfile = "3.23.0"

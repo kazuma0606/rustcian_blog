@@ -1,0 +1,2 @@
+{"timestamp":"2025-07-12T06:26:05.240806700Z","level":"Error","message":"GET /api/users/f42f5401-7f51-48cf-ab6d-8f43777544d5 - 404 Not Found","context":{}}
+{"timestamp":"2025-07-12T06:31:18.933842Z","level":"Error","message":"GET /api/users/f42f5401-7f51-48cf-ab6d-8f43777544d5 - 404 Not Found","context":{}}

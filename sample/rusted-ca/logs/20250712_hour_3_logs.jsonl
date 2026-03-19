@@ -1,0 +1,5 @@
+{"timestamp":"2025-07-12T03:07:06.592926600Z","level":"Info","message":"POST /api/grpc/hello - 200 OK","context":{}}
+{"timestamp":"2025-07-12T03:19:48.722606900Z","level":"Info","message":"POST /api/grpc/hello - 200 OK","context":{}}
+{"timestamp":"2025-07-12T03:24:23.594405300Z","level":"Info","message":"POST /api/grpc/hello - 200 OK","context":{}}
+{"timestamp":"2025-07-12T03:25:08.949045400Z","level":"Info","message":"GET /api/fortune - 200 OK","context":{}}
+{"timestamp":"2025-07-12T03:25:10.437955700Z","level":"Info","message":"GET /api/fortune - 200 OK","context":{}}

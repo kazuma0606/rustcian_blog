@@ -1,0 +1,74 @@
+services:
+  # Redis Stack (JSON機能付き)
+  redis:
+    image: redis/redis-stack:latest
+    container_name: distributed-redis
+    ports:
+      - "6379:6379"      # Redis接続ポート
+      - "8001:8001"      # RedisInsight (Redis GUI)
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    networks:
+      - distributed-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # TiDB Database
+  tidb:
+    image: pingcap/tidb:v7.1.0
+    container_name: distributed-tidb
+    ports:
+      - "4000:4000"      # TiDB MySQL互換ポート
+    command: [
+      "--store=mocktikv",
+      "--host=0.0.0.0",
+      "--log-level=info",
+      "--status-host=0.0.0.0"
+    ]
+    restart: unless-stopped
+    volumes:
+      - tidb_data:/var/lib/tidb
+    networks:
+      - distributed-network
+    environment:
+      - TIDB_BIND_ADDRESS=0.0.0.0
+    healthcheck:
+      test: ["CMD-SHELL", "timeout 10 bash -c '</dev/tcp/localhost/4000' || exit 1"]
+      interval: 30s
+      timeout: 15s
+      retries: 5
+      start_period: 30s
+
+  # phpMyAdmin (TiDB管理ツール)
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin:5.2
+    container_name: distributed-phpmyadmin
+    ports:
+      - "8080:80"
+    environment:
+      - PMA_HOST=tidb
+      - PMA_PORT=4000
+      - PMA_USER=root
+      - PMA_PASSWORD=
+      - PMA_ARBITRARY=1
+    depends_on:
+      tidb:
+        condition: service_started  # healthyからstartedに変更
+    restart: unless-stopped
+    networks:
+      - distributed-network
+
+volumes:
+  tidb_data:
+    driver: local
+  redis_data:
+    driver: local
+
+networks:
+  distributed-network:
+    driver: bridge
+    name: distributed-storage-network

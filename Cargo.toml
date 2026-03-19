@@ -1,0 +1,28 @@
+[workspace]
+members = [
+    "application/core",
+    "application/backend",
+    "application/frontend",
+]
+resolver = "2"
+
+[workspace.package]
+edition = "2024"
+license = "MIT"
+version = "0.1.0"
+authors = ["yoshi"]
+
+[workspace.dependencies]
+actix-files = "0.6.8"
+actix-web = "4.11.0"
+async-trait = "0.1.89"
+chrono = { version = "0.4.42", features = ["serde"] }
+dotenvy = "0.15.7"
+leptos = { version = "0.7.8", features = ["ssr"] }
+pulldown-cmark = "0.13.0"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.145"
+serde_yaml = "0.9.34"
+thiserror = "2.0.17"
+tokio = { version = "1.47.1", features = ["macros", "rt-multi-thread"] }
+urlencoding = "2.1.3"

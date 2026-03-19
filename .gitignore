@@ -1,0 +1,12 @@
+/target
+/.env
+/.env.local
+/.env.*
+!/.env.local.example
+*.pem
+*.key
+*.pfx
+*.crt
+*.cer
+/secrets/
+*.log
