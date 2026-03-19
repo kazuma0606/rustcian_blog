@@ -1,4 +1,4 @@
-# rustcian_blog
+# rustacian_blog
 
 Pure Rust blog application playground.
 
