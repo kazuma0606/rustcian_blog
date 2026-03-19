@@ -10,3 +10,4 @@
 *.cer
 /secrets/
 *.log
+cap/*
