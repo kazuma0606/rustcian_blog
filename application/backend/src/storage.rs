@@ -731,10 +731,10 @@ fn merge_supplemental_metadata(
     mut metadata: PostMetadata,
     supplemental: Option<SupplementalMetadata>,
 ) -> PostMetadata {
-    if let Some(supplemental) = supplemental {
-        if metadata.summary_ai.is_none() {
-            metadata.summary_ai = supplemental.summary_ai;
-        }
+    if let Some(supplemental) = supplemental
+        && metadata.summary_ai.is_none()
+    {
+        metadata.summary_ai = supplemental.summary_ai;
     }
 
     metadata

@@ -3,17 +3,12 @@ use serde::{Deserialize, Serialize};
 
 use super::error::BlogError;
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum PostStatus {
     Draft,
+    #[default]
     Published,
-}
-
-impl Default for PostStatus {
-    fn default() -> Self {
-        Self::Published
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -212,20 +207,20 @@ fn validate_slug(slug: &str) -> Result<(), BlogError> {
 }
 
 fn validate_metadata_rules(metadata: &PostMetadata) -> Result<(), BlogError> {
-    if let Some(updated_at) = metadata.updated_at {
-        if updated_at < metadata.published_at {
-            return Err(BlogError::Validation(
-                "updated_at must be greater than or equal to published_at".to_owned(),
-            ));
-        }
+    if let Some(updated_at) = metadata.updated_at
+        && updated_at < metadata.published_at
+    {
+        return Err(BlogError::Validation(
+            "updated_at must be greater than or equal to published_at".to_owned(),
+        ));
     }
 
-    if let Some(summary_ai) = &metadata.summary_ai {
-        if summary_ai.trim().is_empty() {
-            return Err(BlogError::Validation(
-                "summary_ai must not be empty when present".to_owned(),
-            ));
-        }
+    if let Some(summary_ai) = &metadata.summary_ai
+        && summary_ai.trim().is_empty()
+    {
+        return Err(BlogError::Validation(
+            "summary_ai must not be empty when present".to_owned(),
+        ));
     }
 
     if !metadata.charts.is_empty() && !metadata.math && metadata.summary_ai.is_none() {
