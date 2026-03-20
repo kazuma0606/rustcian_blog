@@ -5,25 +5,15 @@ use std::{
 };
 
 use async_trait::async_trait;
-use base64::{Engine as _, engine::general_purpose::STANDARD};
-use hmac::{Hmac, Mac};
 use pulldown_cmark::{Options, Parser, html};
-use reqwest::{
-    Client, Method, StatusCode,
-    header::{CONTENT_LENGTH, CONTENT_TYPE, HeaderMap, HeaderName, HeaderValue},
-};
 use rustacian_blog_core::{
     BlogError, ChartPoint, Post, PostMetadata, PostRepository, PostStatus, PostSummary,
     PostVisibility, RenderedChart, TocItem,
 };
 use serde::{Deserialize, Serialize};
-use sha2::Sha256;
 
-const AZURITE_ACCOUNT: &str = "devstoreaccount1";
-const AZURITE_ACCOUNT_KEY: &str =
-    "Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==";
-const AZURITE_CONTAINER: &str = "blog-content";
-const AZURITE_API_VERSION: &str = "2023-11-03";
+use crate::blob::AzuriteBlobAdapter;
+
 const INDEX_BLOB_NAME: &str = "posts/index.json";
 const INLINE_MATH_OPEN_TOKEN: &str = "@@MATH_INLINE_OPEN@@";
 const INLINE_MATH_CLOSE_TOKEN: &str = "@@MATH_INLINE_CLOSE@@";
@@ -67,31 +57,20 @@ impl PostRepository for LocalContentPostRepository {
 }
 
 pub struct AzuritePostRepository {
-    client: Client,
-    blob_endpoint: String,
+    blob: AzuriteBlobAdapter,
 }
 
 impl AzuritePostRepository {
     pub fn new(blob_endpoint: String) -> Self {
         Self {
-            client: Client::new(),
-            blob_endpoint,
+            blob: AzuriteBlobAdapter::new(blob_endpoint),
         }
     }
 
     async fn read_manifest(&self) -> Result<Vec<ManifestEntry>, BlogError> {
-        let response = self
-            .request_blob(Method::GET, INDEX_BLOB_NAME, None, None)
-            .await?;
-
-        if response.status() == StatusCode::NOT_FOUND {
+        let Some(body) = self.blob.get_text(INDEX_BLOB_NAME).await? else {
             return Ok(Vec::new());
-        }
-
-        let body = response
-            .text()
-            .await
-            .map_err(|error| BlogError::Storage(error.to_string()))?;
+        };
 
         serde_json::from_str::<Vec<ManifestEntry>>(&body)
             .map_err(|error| BlogError::Parse(error.to_string()))
@@ -102,28 +81,16 @@ impl AzuritePostRepository {
         meta_blob_name: &str,
         markdown_blob_name: &str,
     ) -> Result<Post, BlogError> {
-        let meta_response = self
-            .request_blob(Method::GET, meta_blob_name, None, None)
-            .await?;
-        if meta_response.status() == StatusCode::NOT_FOUND {
-            return Err(BlogError::NotFound(meta_blob_name.to_owned()));
-        }
-
-        let markdown_response = self
-            .request_blob(Method::GET, markdown_blob_name, None, None)
-            .await?;
-        if markdown_response.status() == StatusCode::NOT_FOUND {
-            return Err(BlogError::NotFound(markdown_blob_name.to_owned()));
-        }
-
-        let meta_raw = meta_response
-            .text()
-            .await
-            .map_err(|error| BlogError::Storage(error.to_string()))?;
-        let markdown_raw = markdown_response
-            .text()
-            .await
-            .map_err(|error| BlogError::Storage(error.to_string()))?;
+        let meta_raw = self
+            .blob
+            .get_text(meta_blob_name)
+            .await?
+            .ok_or_else(|| BlogError::NotFound(meta_blob_name.to_owned()))?;
+        let markdown_raw = self
+            .blob
+            .get_text(markdown_blob_name)
+            .await?
+            .ok_or_else(|| BlogError::NotFound(markdown_blob_name.to_owned()))?;
 
         let metadata = merge_supplemental_metadata(
             parse_metadata(&meta_raw)?,
@@ -144,118 +111,11 @@ impl AzuritePostRepository {
         .await
     }
 
-    async fn request_blob(
-        &self,
-        method: Method,
-        blob_name: &str,
-        body: Option<Vec<u8>>,
-        extra_query: Option<BTreeMap<String, String>>,
-    ) -> Result<reqwest::Response, BlogError> {
-        let path = format!("/{AZURITE_CONTAINER}/{blob_name}");
-        self.request(method, &path, body, extra_query, false).await
-    }
-
-    async fn request(
-        &self,
-        method: Method,
-        path: &str,
-        body: Option<Vec<u8>>,
-        extra_query: Option<BTreeMap<String, String>>,
-        is_container_request: bool,
-    ) -> Result<reqwest::Response, BlogError> {
-        let mut url = format!("{}{}", self.blob_endpoint.trim_end_matches('/'), path);
-
-        if let Some(query) = &extra_query {
-            let query_string = query
-                .iter()
-                .map(|(key, value)| format!("{key}={value}"))
-                .collect::<Vec<_>>()
-                .join("&");
-            url = format!("{url}?{query_string}");
-        }
-
-        let body_bytes = body.unwrap_or_default();
-        let content_length = if body_bytes.is_empty() {
-            String::new()
-        } else {
-            body_bytes.len().to_string()
-        };
-        let request_date = chrono::Utc::now()
-            .format("%a, %d %b %Y %H:%M:%S GMT")
-            .to_string();
-
-        let mut headers = HeaderMap::new();
-        headers.insert(
-            HeaderName::from_static("x-ms-date"),
-            HeaderValue::from_str(&request_date)
-                .map_err(|error| BlogError::Storage(error.to_string()))?,
-        );
-        headers.insert(
-            HeaderName::from_static("x-ms-version"),
-            HeaderValue::from_static(AZURITE_API_VERSION),
-        );
-        if method == Method::PUT && !is_container_request {
-            headers.insert(
-                HeaderName::from_static("x-ms-blob-type"),
-                HeaderValue::from_static("BlockBlob"),
-            );
-        }
-        if !content_length.is_empty() {
-            headers.insert(
-                CONTENT_LENGTH,
-                HeaderValue::from_str(&content_length)
-                    .map_err(|error| BlogError::Storage(error.to_string()))?,
-            );
-        }
-        if method == Method::PUT && !body_bytes.is_empty() {
-            headers.insert(
-                CONTENT_TYPE,
-                HeaderValue::from_static("application/octet-stream"),
-            );
-        }
-
-        let authorization = build_authorization_header(
-            &method,
-            endpoint_path(&self.blob_endpoint),
-            path,
-            &headers,
-            extra_query.as_ref(),
-            &content_length,
-            headers
-                .get(CONTENT_TYPE)
-                .and_then(|value| value.to_str().ok())
-                .unwrap_or(""),
-        )?;
-        headers.insert(
-            HeaderName::from_static("authorization"),
-            HeaderValue::from_str(&authorization)
-                .map_err(|error| BlogError::Storage(error.to_string()))?,
-        );
-
-        self.client
-            .request(method, &url)
-            .headers(headers)
-            .body(body_bytes)
-            .send()
-            .await
-            .map_err(|error| BlogError::Storage(error.to_string()))
-    }
-
     async fn read_chart_blob(&self, slug: &str, source: &str) -> Result<String, BlogError> {
         let blob_name = resolve_asset_blob_name(source, slug)?;
-        let response = self
-            .request_blob(Method::GET, &blob_name, None, None)
-            .await?;
-        if response.status() == StatusCode::NOT_FOUND {
-            return Err(BlogError::Validation(format!(
-                "chart source does not exist in storage: {source}"
-            )));
-        }
-
-        response
-            .text()
-            .await
-            .map_err(|error| BlogError::Storage(error.to_string()))
+        self.blob.get_text(&blob_name).await?.ok_or_else(|| {
+            BlogError::Validation(format!("chart source does not exist in storage: {source}"))
+        })
     }
 }
 
@@ -296,7 +156,8 @@ pub async fn seed_azurite_from_local(
     blob_endpoint: &str,
 ) -> Result<(), BlogError> {
     let client = AzuritePostRepository::new(blob_endpoint.to_owned());
-    create_container_if_needed(&client).await?;
+    client.blob.create_container_if_needed().await?;
+    upload_global_images(&client, &content_root.join("images")).await?;
 
     let article_dirs = article_directories(&content_root.join("posts"))?;
     let mut manifest = Vec::with_capacity(article_dirs.len());
@@ -307,31 +168,46 @@ pub async fn seed_azurite_from_local(
 
     let manifest_body = serde_json::to_vec_pretty(&manifest)
         .map_err(|error| BlogError::Storage(error.to_string()))?;
-    upload_blob(&client, INDEX_BLOB_NAME, manifest_body, "application/json").await?;
+    client
+        .blob
+        .put_bytes(INDEX_BLOB_NAME, manifest_body, "application/json")
+        .await?;
 
     Ok(())
 }
 
-async fn create_container_if_needed(client: &AzuritePostRepository) -> Result<(), BlogError> {
-    let mut query = BTreeMap::new();
-    query.insert("restype".to_owned(), "container".to_owned());
-
-    let response = client
-        .request(
-            Method::PUT,
-            &format!("/{AZURITE_CONTAINER}"),
-            None,
-            Some(query),
-            true,
-        )
-        .await?;
-
-    match response.status() {
-        StatusCode::CREATED | StatusCode::CONFLICT => Ok(()),
-        status => Err(BlogError::Storage(format!(
-            "failed to create Azurite container: {status}"
-        ))),
+async fn upload_global_images(
+    client: &AzuritePostRepository,
+    images_dir: &Path,
+) -> Result<(), BlogError> {
+    if !images_dir.exists() {
+        return Ok(());
     }
+
+    for entry in fs::read_dir(images_dir).map_err(|error| BlogError::Storage(error.to_string()))? {
+        let path = entry
+            .map_err(|error| BlogError::Storage(error.to_string()))?
+            .path();
+        if path.is_dir() {
+            continue;
+        }
+
+        let name = path
+            .file_name()
+            .and_then(|value| value.to_str())
+            .ok_or_else(|| BlogError::Storage("image file name is invalid".to_owned()))?;
+        let blob_name = format!("images/{name}");
+        client
+            .blob
+            .put_bytes(
+                &blob_name,
+                fs::read(&path).map_err(|error| BlogError::Storage(error.to_string()))?,
+                infer_content_type(&path),
+            )
+            .await?;
+    }
+
+    Ok(())
 }
 
 async fn seed_post_dir_blob(
@@ -352,22 +228,24 @@ async fn seed_post_dir_blob(
     let meta_blob_name = format!("posts/{article_dir_name}/meta.yml");
     let markdown_blob_name = format!("posts/{article_dir_name}/post.md");
 
-    upload_blob(
-        client,
-        &meta_blob_name,
-        serde_yaml::to_string(&metadata)
-            .map_err(|error| BlogError::Storage(error.to_string()))?
-            .into_bytes(),
-        "application/yaml",
-    )
-    .await?;
-    upload_blob(
-        client,
-        &markdown_blob_name,
-        body_markdown.into_bytes(),
-        "text/markdown",
-    )
-    .await?;
+    client
+        .blob
+        .put_bytes(
+            &meta_blob_name,
+            serde_yaml::to_string(&metadata)
+                .map_err(|error| BlogError::Storage(error.to_string()))?
+                .into_bytes(),
+            "application/yaml",
+        )
+        .await?;
+    client
+        .blob
+        .put_bytes(
+            &markdown_blob_name,
+            body_markdown.into_bytes(),
+            "text/markdown",
+        )
+        .await?;
     upload_article_assets(client, &path, article_dir_name).await?;
 
     let supplemental_path =
@@ -380,13 +258,15 @@ async fn seed_post_dir_blob(
             });
     if let Some(supplemental_path) = supplemental_path.filter(|path| path.exists()) {
         let supplemental_blob_name = format!("metadata/{}.json", metadata.slug);
-        upload_blob(
-            client,
-            &supplemental_blob_name,
-            fs::read(&supplemental_path).map_err(|error| BlogError::Storage(error.to_string()))?,
-            "application/json",
-        )
-        .await?;
+        client
+            .blob
+            .put_bytes(
+                &supplemental_blob_name,
+                fs::read(&supplemental_path)
+                    .map_err(|error| BlogError::Storage(error.to_string()))?,
+                "application/json",
+            )
+            .await?;
     }
 
     Ok(ManifestEntry {
@@ -411,13 +291,14 @@ async fn upload_article_assets(
             relative.to_string_lossy().replace('\\', "/")
         );
         let content_type = infer_content_type(&asset);
-        upload_blob(
-            client,
-            &blob_name,
-            fs::read(&asset).map_err(|error| BlogError::Storage(error.to_string()))?,
-            content_type,
-        )
-        .await?;
+        client
+            .blob
+            .put_bytes(
+                &blob_name,
+                fs::read(&asset).map_err(|error| BlogError::Storage(error.to_string()))?,
+                content_type,
+            )
+            .await?;
     }
 
     Ok(())
@@ -458,134 +339,6 @@ fn infer_content_type(path: &Path) -> &'static str {
         "webp" => "image/webp",
         _ => "application/octet-stream",
     }
-}
-
-async fn upload_blob(
-    client: &AzuritePostRepository,
-    blob_name: &str,
-    body: Vec<u8>,
-    content_type: &str,
-) -> Result<(), BlogError> {
-    let path = format!("/{AZURITE_CONTAINER}/{blob_name}");
-    let mut url = format!("{}{}", client.blob_endpoint.trim_end_matches('/'), path);
-    url = url.replace('\\', "/");
-
-    let content_length = body.len().to_string();
-    let request_date = chrono::Utc::now()
-        .format("%a, %d %b %Y %H:%M:%S GMT")
-        .to_string();
-
-    let mut headers = HeaderMap::new();
-    headers.insert(
-        HeaderName::from_static("x-ms-date"),
-        HeaderValue::from_str(&request_date)
-            .map_err(|error| BlogError::Storage(error.to_string()))?,
-    );
-    headers.insert(
-        HeaderName::from_static("x-ms-version"),
-        HeaderValue::from_static(AZURITE_API_VERSION),
-    );
-    headers.insert(
-        HeaderName::from_static("x-ms-blob-type"),
-        HeaderValue::from_static("BlockBlob"),
-    );
-    headers.insert(
-        CONTENT_LENGTH,
-        HeaderValue::from_str(&content_length)
-            .map_err(|error| BlogError::Storage(error.to_string()))?,
-    );
-    headers.insert(
-        CONTENT_TYPE,
-        HeaderValue::from_str(content_type)
-            .map_err(|error| BlogError::Storage(error.to_string()))?,
-    );
-
-    let authorization = build_authorization_header(
-        &Method::PUT,
-        endpoint_path(&client.blob_endpoint),
-        &path,
-        &headers,
-        None,
-        &content_length,
-        content_type,
-    )?;
-    headers.insert(
-        HeaderName::from_static("authorization"),
-        HeaderValue::from_str(&authorization)
-            .map_err(|error| BlogError::Storage(error.to_string()))?,
-    );
-
-    let response = client
-        .client
-        .put(url)
-        .headers(headers)
-        .body(body)
-        .send()
-        .await
-        .map_err(|error| BlogError::Storage(error.to_string()))?;
-
-    match response.status() {
-        StatusCode::CREATED => Ok(()),
-        status => Err(BlogError::Storage(format!(
-            "failed to upload blob {blob_name}: {status}"
-        ))),
-    }
-}
-
-fn build_authorization_header(
-    method: &Method,
-    endpoint_path: &str,
-    path: &str,
-    headers: &HeaderMap,
-    query: Option<&BTreeMap<String, String>>,
-    content_length: &str,
-    content_type: &str,
-) -> Result<String, BlogError> {
-    let mut canonical_headers = headers
-        .iter()
-        .filter_map(|(name, value)| {
-            let name = name.as_str().to_ascii_lowercase();
-            if name.starts_with("x-ms-") {
-                Some(format!("{}:{}\n", name, value.to_str().ok()?))
-            } else {
-                None
-            }
-        })
-        .collect::<Vec<_>>();
-    canonical_headers.sort();
-
-    let canonicalized_resource = {
-        let mut resource = format!("/{AZURITE_ACCOUNT}{endpoint_path}{path}");
-        if let Some(query) = query {
-            for (key, value) in query {
-                resource.push('\n');
-                resource.push_str(&format!("{}:{}", key.to_ascii_lowercase(), value));
-            }
-        }
-        resource
-    };
-
-    let string_to_sign = format!(
-        "{method}\n\n\n{content_length}\n\n{content_type}\n\n\n\n\n\n\n{}{canonicalized_resource}",
-        canonical_headers.concat()
-    );
-
-    let key = STANDARD
-        .decode(AZURITE_ACCOUNT_KEY)
-        .map_err(|error| BlogError::Storage(error.to_string()))?;
-    let mut mac = Hmac::<Sha256>::new_from_slice(&key)
-        .map_err(|error| BlogError::Storage(error.to_string()))?;
-    mac.update(string_to_sign.as_bytes());
-    let signature = STANDARD.encode(mac.finalize().into_bytes());
-
-    Ok(format!("SharedKey {AZURITE_ACCOUNT}:{signature}"))
-}
-
-fn endpoint_path(blob_endpoint: &str) -> &str {
-    blob_endpoint
-        .strip_prefix("http://127.0.0.1:10000")
-        .or_else(|| blob_endpoint.strip_prefix("http://localhost:10000"))
-        .unwrap_or("")
 }
 
 fn load_posts_from_dir(content_root: &Path, posts_dir: &Path) -> Result<Vec<Post>, BlogError> {
@@ -770,17 +523,9 @@ async fn read_optional_metadata_blob(
     client: &AzuritePostRepository,
     blob_name: &str,
 ) -> Result<Option<SupplementalMetadata>, BlogError> {
-    let response = client
-        .request_blob(Method::GET, blob_name, None, None)
-        .await?;
-    if response.status() == StatusCode::NOT_FOUND {
+    let Some(raw) = client.blob.get_text(blob_name).await? else {
         return Ok(None);
-    }
-
-    let raw = response
-        .text()
-        .await
-        .map_err(|error| BlogError::Storage(error.to_string()))?;
+    };
     let supplemental: SupplementalMetadata =
         serde_json::from_str(&raw).map_err(|error| BlogError::Parse(error.to_string()))?;
     Ok(Some(supplemental))
@@ -821,6 +566,19 @@ fn parse_chart_data(
     raw_csv: &str,
 ) -> Result<RenderedChart, BlogError> {
     let rows = parse_csv_rows(raw_csv)?;
+    let table_headers = rows
+        .first()
+        .map(|row| row.keys().cloned().collect::<Vec<_>>())
+        .unwrap_or_default();
+    let table_rows = rows
+        .iter()
+        .map(|row| {
+            table_headers
+                .iter()
+                .map(|header| row.get(header).cloned().unwrap_or_default())
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
     let points = rows
         .into_iter()
         .map(|row| {
@@ -862,6 +620,8 @@ fn parse_chart_data(
         title: chart.title.clone(),
         caption: chart.caption.clone(),
         points,
+        table_headers,
+        table_rows,
     })
 }
 
@@ -1027,17 +787,55 @@ fn render_markdown(markdown: &str, toc_items: &[TocItem], enable_math: bool) -> 
     let mut html_output = String::new();
     html::push_html(&mut html_output, parser);
     let html_output = attach_heading_ids(html_output, toc_items);
-    if enable_math {
+    let html_output = if enable_math {
         finalize_math_placeholders(html_output)
     } else {
         html_output
-    }
+    };
+
+    transform_mermaid_blocks(html_output)
 }
 
 fn finalize_math_placeholders(html_output: String) -> String {
     html_output
         .replace(INLINE_MATH_OPEN_TOKEN, "\\(")
         .replace(INLINE_MATH_CLOSE_TOKEN, "\\)")
+}
+
+fn transform_mermaid_blocks(html_output: String) -> String {
+    let start_token = "<pre><code class=\"language-mermaid\">";
+    let end_token = "</code></pre>";
+    let mut result = String::new();
+    let mut cursor = 0;
+
+    while let Some(relative_start) = html_output[cursor..].find(start_token) {
+        let start = cursor + relative_start;
+        result.push_str(&html_output[cursor..start]);
+        let content_start = start + start_token.len();
+
+        let Some(relative_end) = html_output[content_start..].find(end_token) else {
+            result.push_str(&html_output[start..]);
+            return result;
+        };
+        let end = content_start + relative_end;
+        let mermaid_source = decode_html_entities(&html_output[content_start..end]);
+        result.push_str("<pre class=\"mermaid\">");
+        result.push_str(mermaid_source.trim());
+        result.push_str("</pre>");
+        cursor = end + end_token.len();
+    }
+
+    result.push_str(&html_output[cursor..]);
+    result
+}
+
+fn decode_html_entities(value: &str) -> String {
+    value
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&amp;", "&")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
 }
 
 fn markdown_contains_math(markdown: &str) -> bool {
@@ -1374,6 +1172,15 @@ status: draft
 
         assert!(html.contains("<div class=\"math-display\">\\["));
         assert!(html.contains("\\int_0^1 x^2"));
+    }
+
+    #[test]
+    fn render_markdown_transforms_mermaid_code_blocks() {
+        let html = render_markdown("```mermaid\nflowchart LR\nA --> B\n```", &[], false);
+
+        assert!(html.contains("<pre class=\"mermaid\">"));
+        assert!(html.contains("flowchart LR"));
+        assert!(!html.contains("language-mermaid"));
     }
 
     #[test]

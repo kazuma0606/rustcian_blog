@@ -1,4 +1,4 @@
-use std::{fs, path::PathBuf};
+use std::{fs, path::PathBuf, sync::Arc};
 
 use chrono::Utc;
 use reqwest::Client;
@@ -7,6 +7,9 @@ use rustacian_blog_core::{
     GeneratedMetadataStore,
 };
 use serde::{Deserialize, Serialize};
+
+use crate::blob::AzuriteBlobAdapter;
+use crate::config::AppConfig;
 
 #[derive(Debug, Clone)]
 pub struct AzureOpenAiConfig {
@@ -52,6 +55,25 @@ impl AzureOpenAiMetadataGenerator {
             request.body_markdown
         )
     }
+}
+
+pub fn build_ai_metadata_generator(config: &AppConfig) -> Option<Arc<dyn AiMetadataGenerator>> {
+    let endpoint = config.azure_openai_endpoint.clone()?;
+    let deployment = config.azure_openai_deployment.clone()?;
+    let api_key = config.azure_openai_api_key.clone()?;
+
+    Some(Arc::new(AzureOpenAiMetadataGenerator::new(
+        AzureOpenAiConfig {
+            endpoint,
+            deployment,
+            api_key,
+            api_version: config.azure_openai_api_version.clone(),
+            model_name: config
+                .azure_openai_model_name
+                .clone()
+                .unwrap_or_else(|| "azure-openai".to_owned()),
+        },
+    )))
 }
 
 #[async_trait::async_trait]
@@ -126,6 +148,31 @@ impl LocalGeneratedMetadataStore {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct AzuriteGeneratedMetadataStore {
+    blob: AzuriteBlobAdapter,
+}
+
+impl AzuriteGeneratedMetadataStore {
+    pub fn new(blob_endpoint: String) -> Self {
+        Self {
+            blob: AzuriteBlobAdapter::new(blob_endpoint),
+        }
+    }
+}
+
+pub fn build_generated_metadata_store(config: &AppConfig) -> Arc<dyn GeneratedMetadataStore> {
+    match config.storage_backend.as_str() {
+        "azurite" => Arc::new(AzuriteGeneratedMetadataStore::new(
+            config
+                .azurite_blob_endpoint
+                .clone()
+                .unwrap_or_else(|| "http://127.0.0.1:10000/devstoreaccount1".to_owned()),
+        )),
+        _ => Arc::new(LocalGeneratedMetadataStore::new(config.metadata_dir())),
+    }
+}
+
 #[async_trait::async_trait]
 impl GeneratedMetadataStore for LocalGeneratedMetadataStore {
     async fn save(&self, slug: &str, metadata: &GeneratedMetadata) -> Result<(), BlogError> {
@@ -135,6 +182,18 @@ impl GeneratedMetadataStore for LocalGeneratedMetadataStore {
         let body = serde_json::to_string_pretty(metadata)
             .map_err(|error| BlogError::Parse(error.to_string()))?;
         fs::write(path, body).map_err(|error| BlogError::Storage(error.to_string()))
+    }
+}
+
+#[async_trait::async_trait]
+impl GeneratedMetadataStore for AzuriteGeneratedMetadataStore {
+    async fn save(&self, slug: &str, metadata: &GeneratedMetadata) -> Result<(), BlogError> {
+        let body = serde_json::to_vec_pretty(metadata)
+            .map_err(|error| BlogError::Parse(error.to_string()))?;
+        let blob_name = format!("metadata/{slug}.json");
+        self.blob
+            .put_bytes(&blob_name, body, "application/json")
+            .await
     }
 }
 
@@ -183,6 +242,8 @@ struct GeneratedMetadataPayload {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::blob::AzuriteBlobAdapter;
+    use crate::config::AppConfig;
 
     #[test]
     fn build_prompt_mentions_requested_fields() {
@@ -222,5 +283,136 @@ mod tests {
         assert!(raw.contains("\"suggested_tags\""));
         assert!(raw.contains("\"intro_candidates\""));
         assert!(raw.contains("\"source_model\": \"model\""));
+    }
+
+    #[tokio::test]
+    async fn generated_metadata_store_factory_returns_local_store_for_local_backend() {
+        let temp = tempfile::tempdir().unwrap();
+        let config = AppConfig {
+            app_env: "test".to_owned(),
+            app_host: "127.0.0.1".to_owned(),
+            app_port: 8080,
+            storage_backend: "local".to_owned(),
+            content_root: temp.path().join("content"),
+            azurite_blob_endpoint: None,
+            azurite_table_endpoint: None,
+            azure_openai_endpoint: None,
+            azure_openai_deployment: None,
+            azure_openai_api_key: None,
+            azure_openai_api_version: "2024-10-21".to_owned(),
+            azure_openai_model_name: None,
+            admin_auth_mode: "disabled".to_owned(),
+            entra_tenant_id: None,
+            entra_client_id: None,
+            entra_oidc_metadata_url: None,
+            entra_admin_group_id: None,
+            entra_admin_user_oid: None,
+            static_output_dir: "./dist".into(),
+            static_publish_backend: "local".to_owned(),
+            static_publish_prefix: "site".to_owned(),
+            observability_backend: "noop".to_owned(),
+            application_insights_connection_string: None,
+            base_url: "http://127.0.0.1:8080".to_owned(),
+        };
+
+        let store = build_generated_metadata_store(&config);
+        let metadata = GeneratedMetadata {
+            summary_ai: Some("summary".to_owned()),
+            suggested_tags: vec!["rust".to_owned()],
+            intro_candidates: vec!["intro".to_owned()],
+            generated_at: Utc::now(),
+            source_model: Some("model".to_owned()),
+        };
+
+        store.save("sample", &metadata).await.unwrap();
+
+        let raw = fs::read_to_string(config.metadata_dir().join("sample.json")).unwrap();
+        assert!(raw.contains("\"summary_ai\": \"summary\""));
+    }
+
+    #[tokio::test]
+    async fn generated_metadata_store_factory_can_write_via_azurite_backend() {
+        let endpoint = "http://127.0.0.1:10000/devstoreaccount1";
+        let require_azurite = std::env::var("RUN_AZURITE_TESTS").ok().as_deref() == Some("1");
+        let config = AppConfig {
+            app_env: "test".to_owned(),
+            app_host: "127.0.0.1".to_owned(),
+            app_port: 8080,
+            storage_backend: "azurite".to_owned(),
+            content_root: "./content".into(),
+            azurite_blob_endpoint: Some(endpoint.to_owned()),
+            azurite_table_endpoint: None,
+            azure_openai_endpoint: None,
+            azure_openai_deployment: None,
+            azure_openai_api_key: None,
+            azure_openai_api_version: "2024-10-21".to_owned(),
+            azure_openai_model_name: None,
+            admin_auth_mode: "disabled".to_owned(),
+            entra_tenant_id: None,
+            entra_client_id: None,
+            entra_oidc_metadata_url: None,
+            entra_admin_group_id: None,
+            entra_admin_user_oid: None,
+            static_output_dir: "./dist".into(),
+            static_publish_backend: "local".to_owned(),
+            static_publish_prefix: "site".to_owned(),
+            observability_backend: "noop".to_owned(),
+            application_insights_connection_string: None,
+            base_url: "http://127.0.0.1:8080".to_owned(),
+        };
+        let store = build_generated_metadata_store(&config);
+        let metadata = GeneratedMetadata {
+            summary_ai: Some("summary".to_owned()),
+            suggested_tags: vec!["rust".to_owned()],
+            intro_candidates: vec!["intro".to_owned()],
+            generated_at: Utc::now(),
+            source_model: Some("model".to_owned()),
+        };
+
+        let save_result = store.save("adapter-azurite", &metadata).await;
+        if !require_azurite && save_result.is_err() {
+            return;
+        }
+        save_result.unwrap();
+
+        let blob = AzuriteBlobAdapter::new(endpoint.to_owned());
+        let raw = blob.get_text("metadata/adapter-azurite.json").await;
+        if !require_azurite && raw.is_err() {
+            return;
+        }
+        let raw = raw.unwrap().unwrap();
+        assert!(raw.contains("\"summary_ai\": \"summary\""));
+    }
+
+    #[test]
+    fn ai_generator_factory_returns_none_when_configuration_is_missing() {
+        let config = AppConfig {
+            app_env: "test".to_owned(),
+            app_host: "127.0.0.1".to_owned(),
+            app_port: 8080,
+            storage_backend: "local".to_owned(),
+            content_root: "./content".into(),
+            azurite_blob_endpoint: None,
+            azurite_table_endpoint: None,
+            azure_openai_endpoint: None,
+            azure_openai_deployment: None,
+            azure_openai_api_key: None,
+            azure_openai_api_version: "2024-10-21".to_owned(),
+            azure_openai_model_name: None,
+            admin_auth_mode: "disabled".to_owned(),
+            entra_tenant_id: None,
+            entra_client_id: None,
+            entra_oidc_metadata_url: None,
+            entra_admin_group_id: None,
+            entra_admin_user_oid: None,
+            static_output_dir: "./dist".into(),
+            static_publish_backend: "local".to_owned(),
+            static_publish_prefix: "site".to_owned(),
+            observability_backend: "noop".to_owned(),
+            application_insights_connection_string: None,
+            base_url: "http://127.0.0.1:8080".to_owned(),
+        };
+
+        assert!(build_ai_metadata_generator(&config).is_none());
     }
 }

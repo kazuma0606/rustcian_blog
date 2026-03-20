@@ -1,25 +1,36 @@
-use actix_web::{HttpRequest, HttpResponse, Result, get, http::header::ContentType, web};
-use rustacian_blog_core::{BlogError, Post, PostSummary, PostVisibility};
+use crate::state::AppState;
+use actix_web::{
+    HttpRequest, HttpResponse, Result, cookie::Cookie, get, http::header::ContentType, web,
+};
+use std::{fs, path::Path};
+use rustacian_blog_core::{
+    AdminAuthError, AiGenerationScope, BlogError, Post, PostSummary, PostVisibility,
+};
 use rustacian_blog_frontend::{render_post_page, render_posts_page};
 
-use crate::auth::{AdminAuthError, validate_admin_request};
-use crate::state::AppState;
+use crate::observability::AppEvent;
 
 pub fn routes(cfg: &mut web::ServiceConfig) {
-    cfg.service(health)
-        .configure(public_routes)
-        .configure(admin_routes);
+    cfg.service(health).service(
+        web::scope("")
+            .configure(public_routes)
+            .service(web::scope("/admin").configure(admin_routes)),
+    );
 }
 
 fn public_routes(cfg: &mut web::ServiceConfig) {
     cfg.service(list_posts)
         .service(get_post)
+        .service(get_image)
         .service(index_page)
         .service(post_page);
 }
 
 fn admin_routes(cfg: &mut web::ServiceConfig) {
-    cfg.service(admin_preview_placeholder);
+    cfg.service(admin_home)
+        .service(admin_preview_placeholder)
+        .service(generate_ai_metadata)
+        .service(regenerate_static_site);
 }
 
 #[get("/health")]
@@ -40,6 +51,10 @@ async fn list_posts(data: web::Data<AppState>) -> Result<HttpResponse> {
         .execute()
         .await
         .map_err(internal_app_error)?;
+    data.observability.emit(AppEvent::PublicRequestServed {
+        route: "posts_api",
+        slug: None,
+    });
 
     Ok(HttpResponse::Ok().json(posts))
 }
@@ -51,6 +66,11 @@ async fn get_post(path: web::Path<String>, data: web::Data<AppState>) -> Result<
         .execute(&path.into_inner())
         .await
         .map_err(api_app_error)?;
+    let slug = post.slug.clone();
+    data.observability.emit(AppEvent::PublicRequestServed {
+        route: "post_api",
+        slug: Some(slug),
+    });
 
     Ok(HttpResponse::Ok().json(post))
 }
@@ -62,28 +82,78 @@ async fn index_page(data: web::Data<AppState>) -> Result<HttpResponse> {
         .execute()
         .await
         .map_err(internal_app_error)?;
+    data.observability.emit(AppEvent::PublicRequestServed {
+        route: "index_page",
+        slug: None,
+    });
 
     Ok(html_response(render_posts_page(map_summaries(posts))))
 }
 
 #[get("/p/{slug}")]
 async fn post_page(path: web::Path<String>, data: web::Data<AppState>) -> Result<HttpResponse> {
-    let post = data
-        .get_post
-        .execute(&path.into_inner())
-        .await
-        .map_err(page_app_error)?;
+    let slug = path.into_inner();
+    let post = data.get_post.execute(&slug).await.map_err(page_app_error)?;
+    data.observability.emit(AppEvent::PublicRequestServed {
+        route: "post_page",
+        slug: Some(slug),
+    });
 
     Ok(html_response(render_post_page(map_post(post))))
 }
 
-#[get("/admin/preview/{slug}")]
+#[get("/images/{path:.*}")]
+async fn get_image(path: web::Path<String>, data: web::Data<AppState>) -> Result<HttpResponse> {
+    let relative = path.into_inner();
+    if relative.is_empty() || relative.contains("..") || relative.contains('\\') {
+        return Err(actix_web::error::ErrorNotFound("image not found"));
+    }
+
+    if data.config.storage_backend == "azurite"
+        && let Some(blob) = &data.image_blob
+        && let Some((bytes, content_type)) = blob
+            .get_bytes(&format!("images/{relative}"))
+            .await
+            .map_err(internal_app_error)?
+    {
+        return Ok(binary_response(bytes, content_type.as_deref().unwrap_or("application/octet-stream")));
+    }
+
+    let file_path = data.config.images_dir().join(&relative);
+    if !file_path.exists() {
+        return Err(actix_web::error::ErrorNotFound("image not found"));
+    }
+    let bytes = fs::read(&file_path).map_err(|error| {
+        internal_app_error(BlogError::Storage(error.to_string()))
+    })?;
+
+    Ok(binary_response(bytes, infer_content_type(&file_path)))
+}
+
+#[get("")]
+async fn admin_home(request: HttpRequest, data: web::Data<AppState>) -> Result<HttpResponse> {
+    authenticate_admin(&request, &data, "admin_home")
+        .await
+        .map_err(admin_auth_error)?;
+    let posts = data
+        .list_posts
+        .execute_with_visibility(PostVisibility::IncludeDrafts)
+        .await
+        .map_err(internal_app_error)?;
+    let mut response = html_response(render_admin_home(posts));
+    attach_admin_session_cookie(&request, &mut response);
+    Ok(response)
+}
+
+#[get("/preview/{slug}")]
 async fn admin_preview_placeholder(
     path: web::Path<String>,
     request: HttpRequest,
     data: web::Data<AppState>,
 ) -> Result<HttpResponse> {
-    validate_admin_request(request.headers(), &data.config).map_err(admin_auth_error)?;
+    authenticate_admin(&request, &data, "admin_preview")
+        .await
+        .map_err(admin_auth_error)?;
     let slug = path.into_inner();
     let post = data
         .get_post
@@ -94,14 +164,220 @@ async fn admin_preview_placeholder(
     Ok(html_response(render_post_page(map_post(post))))
 }
 
+#[actix_web::post("/ai/{slug}/metadata")]
+async fn generate_ai_metadata(
+    path: web::Path<String>,
+    request: HttpRequest,
+    data: web::Data<AppState>,
+) -> Result<HttpResponse> {
+    authenticate_admin(&request, &data, "admin_ai_metadata")
+        .await
+        .map_err(admin_auth_error)?;
+    let use_case = data
+        .generate_ai_metadata
+        .clone()
+        .ok_or_else(|| actix_web::error::ErrorNotImplemented("ai metadata is not configured"))?;
+    let slug = path.into_inner();
+    let generated = match use_case.execute(&slug, AiGenerationScope::default()).await {
+        Ok(generated) => {
+            data.observability.emit(AppEvent::AiMetadataGenerated {
+                slug: slug.clone(),
+                outcome: "success",
+                source_model: generated.source_model.clone(),
+            });
+            generated
+        }
+        Err(error) => {
+            data.observability.emit(AppEvent::AiMetadataGenerated {
+                slug: slug.clone(),
+                outcome: "error",
+                source_model: None,
+            });
+            return Err(api_app_error(error));
+        }
+    };
+
+    Ok(HttpResponse::Ok().json(generated))
+}
+
+#[actix_web::post("/static/regenerate")]
+async fn regenerate_static_site(
+    request: HttpRequest,
+    data: web::Data<AppState>,
+) -> Result<HttpResponse> {
+    authenticate_admin(&request, &data, "admin_static_regenerate")
+        .await
+        .map_err(admin_auth_error)?;
+    let use_case = data.publish_static_site.clone().ok_or_else(|| {
+        actix_web::error::ErrorNotImplemented("static publishing is not configured")
+    })?;
+    let build = use_case.execute().await.map_err(internal_app_error)?;
+
+    Ok(HttpResponse::Ok().json(serde_json::json!({
+        "status": "ok",
+        "pages": build.pages.len(),
+        "assets": build.assets.len(),
+        "target": match data.config.static_publish_backend.as_str() {
+            "azurite" => format!("azurite:{}", data.config.static_publish_prefix),
+            _ => format!("local:{}", data.config.static_output_dir.display()),
+        }
+    })))
+}
+
+async fn authenticate_admin(
+    request: &HttpRequest,
+    data: &web::Data<AppState>,
+    route: &'static str,
+) -> Result<rustacian_blog_core::AdminIdentity, AdminAuthError> {
+    if data.config.admin_auth_mode == "disabled" {
+        data.observability.emit(AppEvent::AdminAuthChecked {
+            route,
+            outcome: "disabled",
+        });
+        return Err(AdminAuthError::Disabled);
+    }
+
+    let raw = request
+        .headers()
+        .get("authorization")
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_owned)
+        .or_else(|| {
+            request
+                .cookie("admin_session")
+                .map(|cookie| format!("Bearer {}", cookie.value()))
+        })
+        .ok_or(AdminAuthError::MissingBearerToken)?;
+    let token = raw
+        .strip_prefix("Bearer ")
+        .ok_or(AdminAuthError::MissingBearerToken)?;
+    let result = data.admin_auth.authenticate_bearer(token).await;
+    data.observability.emit(AppEvent::AdminAuthChecked {
+        route,
+        outcome: match &result {
+            Ok(_) => "success",
+            Err(AdminAuthError::MissingBearerToken) => "missing_bearer",
+            Err(AdminAuthError::InvalidToken(_)) => "invalid_token",
+            Err(AdminAuthError::Forbidden(_)) => "forbidden",
+            Err(AdminAuthError::Disabled) => "disabled",
+            Err(AdminAuthError::MissingConfiguration(_)) => "misconfigured",
+            Err(AdminAuthError::ProviderUnavailable(_)) => "provider_unavailable",
+        },
+    });
+    result
+}
+
+fn render_admin_home(posts: Vec<PostSummary>) -> String {
+    let rows = posts
+        .into_iter()
+        .map(|post| {
+            let status = match post.status {
+                rustacian_blog_core::PostStatus::Draft => "draft",
+                rustacian_blog_core::PostStatus::Published => "published",
+            };
+            format!(
+                r#"<tr>
+<td><strong>{}</strong><div style="color:#6b7280;font-size:13px;">/{}</div></td>
+<td>{}</td>
+<td>{}</td>
+<td>{}</td>
+<td style="display:flex;gap:8px;flex-wrap:wrap;">
+<a href="/admin/preview/{}">Preview</a>
+<form method="post" action="/admin/ai/{}/metadata" style="display:inline;">
+<button type="submit">Generate AI</button>
+</form>
+</td>
+</tr>"#,
+                escape_html(&post.title),
+                escape_html(&post.slug),
+                status,
+                post.published_at.format("%Y-%m-%d"),
+                escape_html(&post.tags.join(", ")),
+                escape_html(&post.slug),
+                escape_html(&post.slug),
+            )
+        })
+        .collect::<String>();
+
+    html_document(
+        "Admin",
+        &format!(
+            r#"<main style="max-width: 1080px; margin: 40px auto; padding: 0 20px; font-family: Georgia, 'Times New Roman', serif;">
+<p style="text-transform: uppercase; letter-spacing: 0.12em; color: #b3541e; font-size: 12px;">Admin</p>
+<h1>Rustacian Blog Admin</h1>
+<p>Preview, AI metadata generation, and static regenerate are available from this dashboard.</p>
+<section style="margin:24px 0;padding:20px;border:1px solid #d9c2a3;border-radius:18px;background:#fffaf2;">
+<h2 style="margin-top:0;">Static Publish</h2>
+<form method="post" action="/admin/static/regenerate">
+<button type="submit">Regenerate Static Site</button>
+</form>
+</section>
+<section style="padding:20px;border:1px solid #d9c2a3;border-radius:18px;background:#fffaf2;overflow-x:auto;">
+<h2 style="margin-top:0;">Posts</h2>
+<table style="width:100%;border-collapse:collapse;">
+<thead>
+<tr>
+<th style="text-align:left;padding:10px;border-bottom:1px solid #d9c2a3;">Post</th>
+<th style="text-align:left;padding:10px;border-bottom:1px solid #d9c2a3;">Status</th>
+<th style="text-align:left;padding:10px;border-bottom:1px solid #d9c2a3;">Published</th>
+<th style="text-align:left;padding:10px;border-bottom:1px solid #d9c2a3;">Tags</th>
+<th style="text-align:left;padding:10px;border-bottom:1px solid #d9c2a3;">Actions</th>
+</tr>
+</thead>
+<tbody>{rows}</tbody>
+</table>
+</section>
+</main>"#
+        ),
+    )
+}
+
 fn html_response(body: String) -> HttpResponse {
     HttpResponse::Ok()
         .content_type(ContentType::html())
         .body(body)
 }
 
+fn binary_response(body: Vec<u8>, content_type: &str) -> HttpResponse {
+    HttpResponse::Ok().content_type(content_type).body(body)
+}
+
+fn attach_admin_session_cookie(request: &HttpRequest, response: &mut HttpResponse) {
+    let Some(raw) = request
+        .headers()
+        .get("authorization")
+        .and_then(|value| value.to_str().ok())
+    else {
+        return;
+    };
+    let Some(token) = raw.strip_prefix("Bearer ") else {
+        return;
+    };
+
+    let cookie = Cookie::build("admin_session", token.to_owned())
+        .http_only(true)
+        .path("/")
+        .finish();
+    let _ = response.add_cookie(&cookie);
+}
+
+fn html_document(title: &str, body: &str) -> String {
+    format!(
+        "<!doctype html><html lang=\"ja\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>{title}</title></head><body>{body}</body></html>"
+    )
+}
+
+fn escape_html(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#39;")
+}
+
 fn internal_app_error(error: BlogError) -> actix_web::Error {
-    log_content_error(&error);
+    log_content_error("internal_app_error", &error);
     actix_web::error::ErrorInternalServerError("content is unavailable")
 }
 
@@ -116,7 +392,7 @@ fn page_app_error(error: BlogError) -> actix_web::Error {
     match error {
         BlogError::NotFound(_) => actix_web::error::ErrorNotFound("post not found"),
         other => {
-            log_content_error(&other);
+            log_content_error("page_app_error", &other);
             actix_web::error::ErrorInternalServerError("content is unavailable")
         }
     }
@@ -131,10 +407,13 @@ fn admin_auth_error(error: AdminAuthError) -> actix_web::Error {
         AdminAuthError::Disabled | AdminAuthError::MissingConfiguration(_) => {
             actix_web::error::ErrorNotImplemented("admin preview is not configured")
         }
+        AdminAuthError::ProviderUnavailable(_) => {
+            actix_web::error::ErrorInternalServerError("admin authentication is unavailable")
+        }
     }
 }
 
-fn log_content_error(error: &BlogError) {
+fn log_content_error(_operation: &'static str, error: &BlogError) {
     eprintln!("content loading error: {error}");
 }
 
@@ -197,6 +476,8 @@ fn map_post(post: Post) -> rustacian_blog_frontend::PostView {
                         y: point.y,
                     })
                     .collect(),
+                table_headers: chart.table_headers,
+                table_rows: chart.table_rows,
             })
             .collect(),
         toc_items: post
@@ -233,41 +514,138 @@ fn resolve_body_asset_urls(body_html: &str, slug: &str) -> String {
         .replace("href=\"../", &format!("href=\"/assets/posts/{slug}/../"))
 }
 
+fn infer_content_type(path: &Path) -> &'static str {
+    match path
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or("")
+    {
+        "svg" => "image/svg+xml",
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "webp" => "image/webp",
+        _ => "application/octet-stream",
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
+    use std::{fs, sync::Arc};
 
     use actix_web::{App, http::StatusCode, test, web};
     use async_trait::async_trait;
     use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
     use chrono::{DateTime, Utc};
     use rustacian_blog_core::{
-        GetPostUseCase, ListPostsUseCase, PostMetadata, PostRepository, PostStatus, PostVisibility,
+        AdminAuthService, AiAssistRequest, AiMetadataGenerator, GenerateAiMetadataUseCase,
+        GeneratedMetadata, GeneratedMetadataStore, GetPostUseCase, ListPostsUseCase, PostMetadata,
+        PostRepository, PostStatus, PostVisibility, PublishStaticSiteUseCase, StaticSiteBuild,
+        StaticSiteGenerator, StaticSitePublisher,
     };
 
     use super::*;
-    use crate::{config::AppConfig, state::AppState};
+    use crate::{
+        config::AppConfig,
+        observability::{AppEvent, ObservabilitySink},
+        state::AppState,
+    };
+    use tempfile::tempdir;
 
     struct MockRepository {
         list_result: Result<Vec<PostSummary>, BlogError>,
         get_result: Result<Post, BlogError>,
     }
 
+    struct MockAdminAuthService {
+        result: Result<rustacian_blog_core::AdminIdentity, AdminAuthError>,
+    }
+
+    struct MockAiMetadataGenerator;
+
+    #[derive(Default)]
+    struct MockGeneratedMetadataStore;
+
+    struct MockObservabilitySink;
+    struct MockStaticSiteGenerator;
+    #[derive(Default)]
+    struct MockStaticSitePublisher;
+
     #[async_trait]
     impl PostRepository for MockRepository {
         async fn list_posts(
             &self,
-            _visibility: PostVisibility,
+            visibility: PostVisibility,
         ) -> Result<Vec<PostSummary>, BlogError> {
-            self.list_result.clone()
+            self.list_result.clone().map(|posts| {
+                posts
+                    .into_iter()
+                    .filter(|post| visibility.allows(post.status))
+                    .collect()
+            })
         }
 
         async fn get_post(
             &self,
-            _slug: &str,
-            _visibility: PostVisibility,
+            slug: &str,
+            visibility: PostVisibility,
         ) -> Result<Post, BlogError> {
-            self.get_result.clone()
+            match self.get_result.clone() {
+                Ok(post) if post.slug == slug && visibility.allows(post.status) => Ok(post),
+                Ok(_) => Err(BlogError::NotFound(slug.to_owned())),
+                Err(error) => Err(error),
+            }
+        }
+    }
+
+    #[async_trait]
+    impl AdminAuthService for MockAdminAuthService {
+        async fn authenticate_bearer(
+            &self,
+            _bearer_token: &str,
+        ) -> Result<rustacian_blog_core::AdminIdentity, AdminAuthError> {
+            self.result.clone()
+        }
+    }
+
+    #[async_trait]
+    impl AiMetadataGenerator for MockAiMetadataGenerator {
+        async fn generate_metadata(
+            &self,
+            request: AiAssistRequest,
+            _scope: AiGenerationScope,
+        ) -> Result<GeneratedMetadata, BlogError> {
+            Ok(GeneratedMetadata {
+                summary_ai: Some(format!("AI summary for {}", request.slug)),
+                suggested_tags: vec!["generated".to_owned()],
+                intro_candidates: vec!["Generated intro".to_owned()],
+                generated_at: Utc::now(),
+                source_model: Some("mock-model".to_owned()),
+            })
+        }
+    }
+
+    #[async_trait]
+    impl GeneratedMetadataStore for MockGeneratedMetadataStore {
+        async fn save(&self, _slug: &str, _metadata: &GeneratedMetadata) -> Result<(), BlogError> {
+            Ok(())
+        }
+    }
+
+    impl ObservabilitySink for MockObservabilitySink {
+        fn emit(&self, _event: AppEvent) {}
+    }
+
+    #[async_trait]
+    impl StaticSiteGenerator for MockStaticSiteGenerator {
+        async fn generate(&self) -> Result<StaticSiteBuild, BlogError> {
+            Ok(StaticSiteBuild::default())
+        }
+    }
+
+    #[async_trait]
+    impl StaticSitePublisher for MockStaticSitePublisher {
+        async fn publish(&self, _build: &StaticSiteBuild) -> Result<(), BlogError> {
+            Ok(())
         }
     }
 
@@ -275,6 +653,16 @@ mod tests {
         AppState {
             list_posts: ListPostsUseCase::new(repository.clone()),
             get_post: GetPostUseCase::new(repository),
+            admin_auth: Arc::new(MockAdminAuthService {
+                result: Err(AdminAuthError::Disabled),
+            }),
+            observability: Arc::new(MockObservabilitySink),
+            image_blob: None,
+            generate_ai_metadata: None,
+            publish_static_site: Some(PublishStaticSiteUseCase::new(
+                Arc::new(MockStaticSiteGenerator),
+                Arc::new(MockStaticSitePublisher),
+            )),
             config: AppConfig {
                 app_env: "test".to_owned(),
                 app_host: "127.0.0.1".to_owned(),
@@ -291,8 +679,15 @@ mod tests {
                 admin_auth_mode: "disabled".to_owned(),
                 entra_tenant_id: None,
                 entra_client_id: None,
+                entra_oidc_metadata_url: None,
                 entra_admin_group_id: None,
                 entra_admin_user_oid: None,
+                static_output_dir: "./dist".into(),
+                static_publish_backend: "local".to_owned(),
+                static_publish_prefix: "site".to_owned(),
+                observability_backend: "noop".to_owned(),
+                application_insights_connection_string: None,
+                base_url: "http://127.0.0.1:8080".to_owned(),
             },
         }
     }
@@ -303,6 +698,23 @@ mod tests {
         state.config.entra_tenant_id = Some("tenant-123".to_owned());
         state.config.entra_client_id = Some("client-123".to_owned());
         state.config.entra_admin_group_id = Some("group-123".to_owned());
+        state.admin_auth = Arc::new(MockAdminAuthService {
+            result: Ok(rustacian_blog_core::AdminIdentity {
+                oid: Some("user-1".to_owned()),
+                preferred_username: None,
+                groups: vec!["group-123".to_owned()],
+            }),
+        });
+        state
+    }
+
+    fn app_state_with_admin_auth_and_ai(repository: Arc<dyn PostRepository>) -> AppState {
+        let mut state = app_state_with_admin_auth(repository.clone());
+        state.generate_ai_metadata = Some(GenerateAiMetadataUseCase::new(
+            repository,
+            Arc::new(MockAiMetadataGenerator),
+            Arc::new(MockGeneratedMetadataStore),
+        ));
         state
     }
 
@@ -444,6 +856,154 @@ mod tests {
     }
 
     #[actix_web::test]
+    async fn admin_home_requires_authentication_when_enabled() {
+        let state = app_state_with_admin_auth(Arc::new(MockRepository {
+            list_result: Ok(Vec::new()),
+            get_result: Ok(sample_post()),
+        }));
+
+        let app =
+            test::init_service(App::new().app_data(web::Data::new(state)).configure(routes)).await;
+
+        let response =
+            test::call_service(&app, test::TestRequest::get().uri("/admin").to_request()).await;
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[actix_web::test]
+    async fn admin_home_renders_when_authenticated() {
+        let state = app_state_with_admin_auth(Arc::new(MockRepository {
+            list_result: Ok(Vec::new()),
+            get_result: Ok(sample_post()),
+        }));
+
+        let app =
+            test::init_service(App::new().app_data(web::Data::new(state)).configure(routes)).await;
+
+        let response = test::call_service(
+            &app,
+            test::TestRequest::get()
+                .uri("/admin")
+                .insert_header((
+                    "authorization",
+                    bearer_for(
+                        r#"{"aud":"client-123","tid":"tenant-123","groups":["group-123"],"oid":"user-1"}"#,
+                    ),
+                ))
+                .to_request(),
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[actix_web::test]
+    async fn admin_ai_metadata_returns_not_implemented_when_ai_is_not_configured() {
+        let state = app_state_with_admin_auth(Arc::new(MockRepository {
+            list_result: Ok(Vec::new()),
+            get_result: Ok(sample_post()),
+        }));
+
+        let app =
+            test::init_service(App::new().app_data(web::Data::new(state)).configure(routes)).await;
+
+        let response = test::call_service(
+            &app,
+            test::TestRequest::post()
+                .uri("/admin/ai/sample/metadata")
+                .insert_header((
+                    "authorization",
+                    bearer_for(
+                        r#"{"aud":"client-123","tid":"tenant-123","groups":["group-123"],"oid":"user-1"}"#,
+                    ),
+                ))
+                .to_request(),
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::NOT_IMPLEMENTED);
+    }
+
+    #[actix_web::test]
+    async fn admin_ai_metadata_generates_and_returns_json_for_draft_post() {
+        let mut draft = sample_post();
+        draft.status = PostStatus::Draft;
+        let state = app_state_with_admin_auth_and_ai(Arc::new(MockRepository {
+            list_result: Ok(Vec::new()),
+            get_result: Ok(draft),
+        }));
+
+        let app =
+            test::init_service(App::new().app_data(web::Data::new(state)).configure(routes)).await;
+
+        let response = test::call_service(
+            &app,
+            test::TestRequest::post()
+                .uri("/admin/ai/sample/metadata")
+                .insert_header((
+                    "authorization",
+                    bearer_for(
+                        r#"{"aud":"client-123","tid":"tenant-123","groups":["group-123"],"oid":"user-1"}"#,
+                    ),
+                ))
+                .to_request(),
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = test::read_body(response).await;
+        let raw = String::from_utf8(body.to_vec()).unwrap();
+        assert!(raw.contains("\"summary_ai\":\"AI summary for sample\""));
+        assert!(raw.contains("\"source_model\":\"mock-model\""));
+    }
+
+    #[actix_web::test]
+    async fn admin_static_regenerate_returns_success_when_authenticated() {
+        let state = app_state_with_admin_auth(Arc::new(MockRepository {
+            list_result: Ok(Vec::new()),
+            get_result: Ok(sample_post()),
+        }));
+
+        let app =
+            test::init_service(App::new().app_data(web::Data::new(state)).configure(routes)).await;
+
+        let response = test::call_service(
+            &app,
+            test::TestRequest::post()
+                .uri("/admin/static/regenerate")
+                .insert_header((
+                    "authorization",
+                    bearer_for(
+                        r#"{"aud":"client-123","tid":"tenant-123","groups":["group-123"],"oid":"user-1"}"#,
+                    ),
+                ))
+                .to_request(),
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[actix_web::test]
+    async fn public_post_page_does_not_render_draft_post() {
+        let mut draft = sample_post();
+        draft.status = PostStatus::Draft;
+        let state = app_state(Arc::new(MockRepository {
+            list_result: Ok(Vec::new()),
+            get_result: Ok(draft),
+        }));
+
+        let app =
+            test::init_service(App::new().app_data(web::Data::new(state)).configure(routes)).await;
+
+        let response =
+            test::call_service(&app, test::TestRequest::get().uri("/p/sample").to_request()).await;
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[actix_web::test]
     async fn resolves_article_asset_urls_for_post_view() {
         let mut post = sample_post();
         post.hero_image = Some("./hero.png".to_owned());
@@ -464,6 +1024,77 @@ mod tests {
         assert!(
             view.body_html
                 .contains("href=\"/assets/posts/sample/data.csv\"")
+        );
+    }
+
+    #[actix_web::test]
+    async fn admin_home_sets_cookie_for_follow_up_admin_actions() {
+        let state = app_state_with_admin_auth(Arc::new(MockRepository {
+            list_result: Ok(vec![sample_post().summary()]),
+            get_result: Ok(sample_post()),
+        }));
+
+        let app =
+            test::init_service(App::new().app_data(web::Data::new(state)).configure(routes)).await;
+
+        let response = test::call_service(
+            &app,
+            test::TestRequest::get()
+                .uri("/admin")
+                .insert_header((
+                    "authorization",
+                    bearer_for(
+                        r#"{"aud":"client-123","tid":"tenant-123","groups":["group-123"],"oid":"user-1"}"#,
+                    ),
+                ))
+                .to_request(),
+        )
+        .await;
+
+        let cookies = response.response().cookies().collect::<Vec<_>>();
+        assert!(
+            cookies
+                .iter()
+                .any(|cookie| cookie.name() == "admin_session")
+        );
+    }
+
+    #[actix_web::test]
+    async fn image_route_serves_local_svg_asset() {
+        let temp = tempdir().unwrap();
+        let content_root = temp.path().join("content");
+        fs::create_dir_all(content_root.join("images")).unwrap();
+        fs::write(
+            content_root.join("images").join("sample.svg"),
+            "<svg xmlns=\"http://www.w3.org/2000/svg\"></svg>",
+        )
+        .unwrap();
+
+        let mut state = app_state(Arc::new(MockRepository {
+            list_result: Ok(Vec::new()),
+            get_result: Ok(sample_post()),
+        }));
+        state.config.storage_backend = "local".to_owned();
+        state.config.content_root = content_root;
+
+        let app =
+            test::init_service(App::new().app_data(web::Data::new(state)).configure(routes)).await;
+
+        let response = test::call_service(
+            &app,
+            test::TestRequest::get()
+                .uri("/images/sample.svg")
+                .to_request(),
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response
+                .headers()
+                .get("content-type")
+                .and_then(|value| value.to_str().ok()),
+            Some("image/svg+xml")
         );
     }
 }

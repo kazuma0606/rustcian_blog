@@ -1,20 +1,20 @@
-title: Actix Web と Leptos を分けて使う
+title: Building with Actix Web and Leptos
 slug: actix-and-leptos
 published_at: 2026-03-19T00:30:00Z
 updated_at: 2026-03-20T18:45:00Z
 tags:
   - actix-web
   - leptos
-summary: API と UI を分離しつつ、Leptos SSR で最小構成を組む方針を整理する。
+summary: API と UI を分離しつつ、Leptos SSR で最小構成を試した公開記事。
 hero_image: /images/stack-flow.svg
 status: published
 toc: true
 math: false
-summary_ai: Actix Web と Leptos の責務分離を、ルーティングと SSR の観点から簡潔に説明する記事。
+summary_ai: Actix Web と Leptos の責務分離、ルーティング、SSR の組み合わせを短く整理した補助要約です。
 charts:
   - type: line
     source: ./request-latency.csv
     x: step
     y: ms
-    title: レイテンシの試験データ
-    caption: サンプル図表用のダミーデータ。
+    title: Request latency by step
+    caption: サンプル CSV から描画する確認用チャート。

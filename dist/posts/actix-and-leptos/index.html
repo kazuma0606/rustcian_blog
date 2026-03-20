@@ -1,0 +1,276 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Building with Actix Web and Leptos</title>
+    
+    <style>
+      :root {
+        --bg: #f7f1e7;
+        --surface: rgba(255, 252, 246, 0.88);
+        --line: #d9c2a3;
+        --text: #1f2933;
+        --muted: #52606d;
+        --accent: #b3541e;
+        --accent-soft: #efd8b9;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        color: var(--text);
+        background:
+          radial-gradient(circle at top left, rgba(239, 216, 185, 0.9), transparent 32%),
+          linear-gradient(160deg, #f7f1e7 0%, #efe5d4 100%);
+        font-family: Georgia, "Times New Roman", serif;
+      }
+      a { color: inherit; }
+      .shell {
+        max-width: 960px;
+        margin: 0 auto;
+        padding: 32px 20px 72px;
+      }
+      .hero {
+        padding: 28px;
+        border: 1px solid var(--line);
+        border-radius: 28px;
+        background: var(--surface);
+        box-shadow: 0 18px 48px rgba(98, 72, 50, 0.12);
+      }
+      .eyebrow {
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        font-size: 12px;
+        color: var(--accent);
+      }
+      h1, h2, h3 { line-height: 1.1; }
+      .posts {
+        display: grid;
+        gap: 18px;
+        margin-top: 28px;
+      }
+      .card {
+        display: grid;
+        gap: 14px;
+        border-radius: 24px;
+        padding: 22px;
+        border: 1px solid var(--line);
+        background: rgba(255, 249, 242, 0.94);
+        text-decoration: none;
+        box-shadow: 0 12px 28px rgba(98, 72, 50, 0.08);
+      }
+      .card img, .post img {
+        width: 100%;
+        max-height: 280px;
+        object-fit: cover;
+        border-radius: 18px;
+        border: 1px solid var(--line);
+        background: white;
+      }
+      .meta {
+        color: var(--muted);
+        font-size: 14px;
+      }
+      .meta-stack {
+        display: grid;
+        gap: 6px;
+      }
+      .tags {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+      .tag {
+        display: inline-flex;
+        align-items: center;
+        padding: 6px 12px;
+        border-radius: 999px;
+        background: var(--accent-soft);
+        color: #713f12;
+        font-size: 13px;
+      }
+      .tag.is-info {
+        background: #f2eadc;
+        color: var(--muted);
+      }
+      .post {
+        margin-top: 28px;
+        padding: 28px;
+        border-radius: 28px;
+        border: 1px solid var(--line);
+        background: rgba(255, 252, 246, 0.94);
+      }
+      .toc {
+        margin-top: 24px;
+        padding: 18px 20px;
+        border: 1px solid var(--line);
+        border-radius: 20px;
+        background: rgba(247, 241, 231, 0.8);
+      }
+      .toc h2 {
+        margin: 0 0 12px;
+        font-size: 18px;
+      }
+      .toc ul {
+        margin: 0;
+        padding-left: 18px;
+        display: grid;
+        gap: 8px;
+      }
+      .toc a {
+        text-decoration: none;
+        color: var(--accent);
+      }
+      .post-body {
+        line-height: 1.7;
+      }
+      .post-body pre {
+        margin: 20px 0;
+        padding: 18px 20px;
+        overflow-x: auto;
+        border-radius: 18px;
+        border: 1px solid #d8c5ad;
+        background: #2a211c;
+        color: #f8efe4;
+      }
+      .post-body pre code {
+        display: block;
+        padding: 0;
+        background: transparent;
+        color: inherit;
+        border: 0;
+      }
+      .post-body code {
+        padding: 0.15em 0.45em;
+        border-radius: 8px;
+        background: rgba(239, 216, 185, 0.45);
+        border: 1px solid rgba(179, 84, 30, 0.12);
+        color: #713f12;
+        font-family: "Courier New", monospace;
+        font-size: 0.95em;
+      }
+      .post-body .katex-display {
+        overflow-x: auto;
+        overflow-y: hidden;
+        padding: 8px 0;
+      }
+      .math-fallback-note {
+        margin-top: 24px;
+        padding: 14px 16px;
+        border: 1px solid #d3b689;
+        border-radius: 16px;
+        background: rgba(239, 216, 185, 0.55);
+        color: #7c4a1d;
+      }
+      body.math-fallback .post-body .math-inline,
+      body.math-fallback .post-body .math-display {
+        display: inline-block;
+        padding: 2px 6px;
+        border-radius: 8px;
+        background: rgba(247, 241, 231, 0.95);
+        border: 1px dashed var(--line);
+        font-family: "Courier New", monospace;
+        white-space: pre-wrap;
+      }
+      body.math-fallback .post-body .math-display {
+        display: block;
+        padding: 12px 14px;
+        margin: 16px 0;
+        overflow-x: auto;
+      }
+      .ai-summary {
+        margin-top: 24px;
+        padding: 18px 20px;
+        border-left: 4px solid var(--accent);
+        background: rgba(239, 216, 185, 0.4);
+        border-radius: 12px;
+      }
+      .chart-list {
+        margin-top: 24px;
+        padding: 18px 20px;
+        border: 1px solid var(--line);
+        border-radius: 20px;
+        background: rgba(247, 241, 231, 0.7);
+      }
+      .chart-card {
+        display: grid;
+        gap: 12px;
+        padding: 18px 0;
+        border-top: 1px solid rgba(217, 194, 163, 0.8);
+      }
+      .chart-card:first-child {
+        padding-top: 0;
+        border-top: 0;
+      }
+      .chart-svg {
+        width: 100%;
+        height: auto;
+        border-radius: 16px;
+        border: 1px solid rgba(217, 194, 163, 0.8);
+        background: linear-gradient(180deg, rgba(255, 252, 246, 0.96), rgba(247, 241, 231, 0.82));
+      }
+      .chart-caption {
+        color: var(--muted);
+        font-size: 14px;
+      }
+      .chart-list h2 {
+        margin: 0 0 12px;
+        font-size: 18px;
+      }
+      .chart-list code {
+        font-size: 13px;
+      }
+      .chart-table-wrap {
+        overflow-x: auto;
+      }
+      .chart-table {
+        width: 100%;
+        border-collapse: collapse;
+        border: 1px solid rgba(217, 194, 163, 0.9);
+        background: rgba(255, 252, 246, 0.9);
+        font-size: 14px;
+      }
+      .chart-table th,
+      .chart-table td {
+        padding: 10px 12px;
+        border: 1px solid rgba(217, 194, 163, 0.7);
+        text-align: left;
+        white-space: nowrap;
+      }
+      .chart-table th {
+        background: rgba(239, 216, 185, 0.55);
+      }
+      .post-body h1, .post-body h2, .post-body h3 {
+        margin-top: 1.8em;
+      }
+      .nav {
+        display: inline-flex;
+        margin-top: 20px;
+        color: var(--accent);
+        text-decoration: none;
+      }
+      @media (max-width: 640px) {
+        .shell { padding: 20px 16px 48px; }
+        .hero, .post, .card { border-radius: 22px; }
+      }
+    </style>
+  </head>
+  <body><main class="shell"><section class="hero"><div class="eyebrow">Post Detail</div><h1>Building with Actix Web and Leptos</h1><p>API と UI を分離しつつ、Leptos SSR で最小構成を組む方向をまとめた公開記事。</p><div class="meta-stack"><div class="meta">2026-03-19</div><div class="meta">Updated 2026-03-20</div></div><div class="tags"><span class="tag">actix-web</span><span class="tag">leptos</span><!><span class="tag is-info">TOC</span><!></div></section><article class="post"><img src="/images/stack-flow.svg" alt="Building with Actix Web and Leptos"><nav aria-label="Table of contents" class="toc"><h2>Contents</h2><ul><li><a href="#building-with-actix-web-and-leptos">Building with Actix Web and Leptos</a></li><li><a href="#section">最小ルーティング</a></li><li><a href="#section-2">いま見ているポイント</a></li><!></ul></nav><!><section class="ai-summary"><div class="eyebrow">AI Summary</div><p>Actix Web と Leptos の責務分離、ルーティング、SSR の組み合わせを短く整理した補助要約です。</p></section><section class="chart-list"><h2>Charts</h2><div><section class="chart-card"><strong>Request latency by step</strong><div class="meta"><code>/assets/posts/actix-and-leptos/request-latency.csv</code> / <!>x: step, y: ms</div><div><svg class="chart-svg" viewBox="0 0 640 280" role="img" aria-label="Request latency by step"><line x1="54" y1="226" x2="618" y2="226" stroke="#8d6e52" stroke-width="1.5" /><line x1="54" y1="20" x2="54" y2="226" stroke="#8d6e52" stroke-width="1.5" /><g><line x1="54" y1="226.0" x2="618" y2="226.0" stroke="rgba(82, 96, 109, 0.18)" stroke-width="1" /><text x="10" y="230.0" fill="#52606d" font-size="12">0</text></g><g><line x1="54" y1="174.5" x2="618" y2="174.5" stroke="rgba(82, 96, 109, 0.18)" stroke-width="1" /><text x="10" y="178.5" fill="#52606d" font-size="12">10</text></g><g><line x1="54" y1="123.0" x2="618" y2="123.0" stroke="rgba(82, 96, 109, 0.18)" stroke-width="1" /><text x="10" y="127.0" fill="#52606d" font-size="12">19</text></g><g><line x1="54" y1="71.5" x2="618" y2="71.5" stroke="rgba(82, 96, 109, 0.18)" stroke-width="1" /><text x="10" y="75.5" fill="#52606d" font-size="12">28</text></g><g><line x1="54" y1="20.0" x2="618" y2="20.0" stroke="rgba(82, 96, 109, 0.18)" stroke-width="1" /><text x="10" y="24.0" fill="#52606d" font-size="12">38</text></g><path d="M 54.0 20.0 L 242.0 95.9 L 430.0 123.0 L 618.0 139.3" fill="none" stroke="#b3541e" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" /><g><circle cx="54.0" cy="20.0" r="5" fill="#b3541e" /><text x="54.0" y="8.0" text-anchor="middle" fill="#7c4a1d" font-size="12">38</text></g><g><circle cx="242.0" cy="95.9" r="5" fill="#b3541e" /><text x="242.0" y="83.9" text-anchor="middle" fill="#7c4a1d" font-size="12">24</text></g><g><circle cx="430.0" cy="123.0" r="5" fill="#b3541e" /><text x="430.0" y="111.0" text-anchor="middle" fill="#7c4a1d" font-size="12">19</text></g><g><circle cx="618.0" cy="139.3" r="5" fill="#b3541e" /><text x="618.0" y="127.3" text-anchor="middle" fill="#7c4a1d" font-size="12">16</text></g><text x="54.0" y="262" text-anchor="middle" fill="#52606d" font-size="12">bootstrap</text><text x="242.0" y="262" text-anchor="middle" fill="#52606d" font-size="12">api</text><text x="430.0" y="262" text-anchor="middle" fill="#52606d" font-size="12">ssr</text><text x="618.0" y="262" text-anchor="middle" fill="#52606d" font-size="12">render</text><text x="336" y="278" text-anchor="middle" fill="#52606d" font-size="12">step</text><text x="18" y="123" text-anchor="middle" fill="#52606d" font-size="12" transform="rotate(-90 18,123)">ms</text></svg></div><div class="chart-table-wrap"><table class="chart-table"><thead><tr><th>ms</th><th>step</th><!></tr></thead><tbody><tr><td>38</td><td>bootstrap</td><!></tr><tr><td>24</td><td>api</td><!></tr><tr><td>19</td><td>ssr</td><!></tr><tr><td>16</td><td>render</td><!></tr><!></tbody></table></div><div class="chart-caption">サンプル CSV から描画する確認用チャート。</div></section><!></div></section><div class="post-body"><h1 id="building-with-actix-web-and-leptos">Building with Actix Web and Leptos</h1>
+<p>バックエンドの API と静的アセット配信を Actix Web が担い、フロントエンドの描画は Leptos で組む構成を試しています。</p>
+<h2 id="section">最小ルーティング</h2>
+<ul>
+<li><code>/health</code></li>
+<li><code>/posts</code></li>
+<li><code>/posts/{slug}</code></li>
+<li><code>/</code></li>
+<li><code>/p/{slug}</code></li>
+</ul>
+<h2 id="section-2">いま見ているポイント</h2>
+<ul>
+<li>Actix を API と配信の境界に置く</li>
+<li>Leptos を UI と HTML 生成に使う</li>
+<li>Chart 用 CSV をメタデータから参照して描画する</li>
+</ul>
+<p>このページではチャートの SVG 描画に加えて、同じ CSV を表形式でも確認できるようにしています。</p>
+</div><a class="nav" href="/">Back to posts</a></article></main></body>
+</html>

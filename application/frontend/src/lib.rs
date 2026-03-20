@@ -23,6 +23,8 @@ pub struct RenderedChartView {
     pub title: Option<String>,
     pub caption: Option<String>,
     pub points: Vec<ChartPointView>,
+    pub table_headers: Vec<String>,
+    pub table_rows: Vec<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -36,6 +38,13 @@ pub struct PostSummaryView {
     pub hero_image: Option<String>,
     pub toc: bool,
     pub math: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TagLinkView {
+    pub tag: String,
+    pub href: String,
+    pub count: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -56,18 +65,58 @@ pub struct PostView {
 }
 
 pub fn render_posts_page(posts: Vec<PostSummaryView>) -> String {
-    let body = view! { <PostsPage posts=posts/> }.to_html();
-    wrap_document("Rustacian Blog", &body, false)
+    render_posts_shell(
+        "Rustacian Blog",
+        "Rustacian Blog PoC",
+        "Markdown, Actix Web, and Leptos",
+        "Local-first で記事を管理しつつ、Core と adapter を分離した Rust ブログの実験場です。",
+        posts,
+    )
+}
+
+pub fn render_tag_posts_page(tag: &str, posts: Vec<PostSummaryView>) -> String {
+    render_posts_shell(
+        &format!("Posts tagged {tag}"),
+        "Tag Archive",
+        &format!("Posts tagged {tag}"),
+        &format!("`{tag}` を付けた公開記事の一覧です。"),
+        posts,
+    )
+}
+
+pub fn render_tags_page(tags: Vec<TagLinkView>) -> String {
+    let body = view! { <TagsPage tags=tags/> }.to_html();
+    wrap_document("Tags", &body, false, false)
 }
 
 pub fn render_post_page(post: PostView) -> String {
     let title = post.title.clone();
     let enable_math = post.math;
+    let enable_mermaid = post.body_html.contains("class=\"mermaid\"");
     let body = view! { <PostPage post=post/> }.to_html();
-    wrap_document(&title, &body, enable_math)
+    wrap_document(&title, &body, enable_math, enable_mermaid)
 }
 
-fn wrap_document(title: &str, body: &str, enable_math: bool) -> String {
+fn render_posts_shell(
+    title: &str,
+    eyebrow: &str,
+    headline: &str,
+    summary: &str,
+    posts: Vec<PostSummaryView>,
+) -> String {
+    let body = view! {
+        <PostsPage
+            posts=posts
+            eyebrow=eyebrow.to_owned()
+            headline=headline.to_owned()
+            summary=summary.to_owned()
+        />
+    }
+    .to_html();
+    wrap_document(title, &body, false, false)
+}
+
+fn wrap_document(title: &str, body: &str, enable_math: bool, enable_mermaid: bool) -> String {
     let math_head = if enable_math {
         r#"
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
@@ -106,6 +155,24 @@ fn wrap_document(title: &str, body: &str, enable_math: bool) -> String {
     } else {
         ""
     };
+    let mermaid_head = if enable_mermaid {
+        r#"
+    <script type="module">
+      import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+      mermaid.initialize({
+        startOnLoad: false,
+        securityLevel: "loose",
+        theme: "neutral"
+      });
+      document.addEventListener("DOMContentLoaded", async function () {
+        const blocks = document.querySelectorAll("pre.mermaid");
+        if (!blocks.length) return;
+        await mermaid.run({ nodes: blocks });
+      });
+    </script>"#
+    } else {
+        ""
+    };
 
     format!(
         r#"<!doctype html>
@@ -115,6 +182,7 @@ fn wrap_document(title: &str, body: &str, enable_math: bool) -> String {
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{title}</title>
     {math_head}
+    {mermaid_head}
     <style>
       :root {{
         --bg: #f7f1e7;
@@ -176,6 +244,10 @@ fn wrap_document(title: &str, body: &str, enable_math: bool) -> String {
         border-radius: 18px;
         border: 1px solid var(--line);
         background: white;
+      }}
+      .card img[src$=".svg"], .post img[src$=".svg"] {{
+        object-fit: contain;
+        background: transparent;
       }}
       .meta {{
         color: var(--muted);
@@ -242,7 +314,12 @@ fn wrap_document(title: &str, body: &str, enable_math: bool) -> String {
         border: 1px solid #d8c5ad;
         background: #2a211c;
         color: #f8efe4;
-        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+      }}
+      .post-body pre.mermaid {{
+        padding: 12px;
+        border: 1px solid #d8c5ad;
+        background: rgba(255, 252, 246, 0.98);
+        color: var(--text);
       }}
       .post-body pre code {{
         display: block;
@@ -330,6 +407,26 @@ fn wrap_document(title: &str, body: &str, enable_math: bool) -> String {
       }}
       .chart-list code {{
         font-size: 13px;
+      }}
+      .chart-table-wrap {{
+        overflow-x: auto;
+      }}
+      .chart-table {{
+        width: 100%;
+        border-collapse: collapse;
+        border: 1px solid rgba(217, 194, 163, 0.9);
+        background: rgba(255, 252, 246, 0.9);
+        font-size: 14px;
+      }}
+      .chart-table th,
+      .chart-table td {{
+        padding: 10px 12px;
+        border: 1px solid rgba(217, 194, 163, 0.7);
+        text-align: left;
+        white-space: nowrap;
+      }}
+      .chart-table th {{
+        background: rgba(239, 216, 185, 0.55);
       }}
       .post-body h1, .post-body h2, .post-body h3 {{
         margin-top: 1.8em;
@@ -494,78 +591,24 @@ fn escape_html(value: &str) -> String {
         .replace('\'', "&#39;")
 }
 
-#[cfg(test)]
-mod tests {
-    use super::{ChartPointView, PostView, RenderedChartView, render_post_page};
-
-    fn sample_post_view() -> PostView {
-        PostView {
-            title: "Sample".to_owned(),
-            slug: "sample".to_owned(),
-            published_at: "2026-03-20".to_owned(),
-            updated_at: None,
-            tags: vec!["rust".to_owned()],
-            summary: "summary".to_owned(),
-            hero_image: None,
-            toc: false,
-            math: true,
-            summary_ai: None,
-            charts: vec![RenderedChartView {
-                chart_type: "line".to_owned(),
-                source: "/assets/posts/sample/metrics.csv".to_owned(),
-                x: "step".to_owned(),
-                y: "ms".to_owned(),
-                title: Some("Latency".to_owned()),
-                caption: Some("caption".to_owned()),
-                points: vec![
-                    ChartPointView {
-                        x: "bootstrap".to_owned(),
-                        y: 38.0,
-                    },
-                    ChartPointView {
-                        x: "api".to_owned(),
-                        y: 24.0,
-                    },
-                ],
-            }],
-            toc_items: Vec::new(),
-            body_html: "<p><span class=\"math-inline\">\\(x^2\\)</span></p><div class=\"math-display\">\\[x+y\\]</div>".to_owned(),
-        }
-    }
-
-    #[test]
-    fn rendered_post_page_includes_math_assets_and_markers() {
-        let html = render_post_page(sample_post_view());
-
-        assert!(html.contains("katex.min.css"));
-        assert!(html.contains("math-inline"));
-        assert!(html.contains("math-display"));
-        assert!(html.contains("renderMathInElement"));
-    }
-}
-
 #[component]
-fn PostsPage(posts: Vec<PostSummaryView>) -> impl IntoView {
+fn PostsPage(
+    posts: Vec<PostSummaryView>,
+    eyebrow: String,
+    headline: String,
+    summary: String,
+) -> impl IntoView {
     let post_cards = posts
         .into_iter()
         .map(|post| {
-            let hero = post.hero_image.clone();
-            let slug = post.slug;
-            let title = post.title;
-            let published_at = post.published_at;
-            let updated_at = post.updated_at;
-            let summary = post.summary;
-            let hero_view = if let Some(src) = hero {
-                view! { <img src=src alt=title.clone()/> }.into_any()
-            } else {
-                ().into_any()
-            };
-            let tags = post
-                .tags
-                .into_iter()
-                .map(|tag| view! { <span class="tag">{tag}</span> })
-                .collect_view();
-            let updated_view = updated_at
+            let hero_view = post
+                .hero_image
+                .clone()
+                .map(|src| view! { <img src=src alt=post.title.clone()/> }.into_any())
+                .unwrap_or_else(|| ().into_any());
+            let updated_view = post
+                .updated_at
+                .clone()
                 .map(|value| {
                     view! { <div class="meta">{format!("Updated {value}")}</div> }.into_any()
                 })
@@ -580,16 +623,21 @@ fn PostsPage(posts: Vec<PostSummaryView>) -> impl IntoView {
             } else {
                 ().into_any()
             };
+            let tags = post
+                .tags
+                .into_iter()
+                .map(|tag| view! { <span class="tag">{tag}</span> })
+                .collect_view();
 
             view! {
-                <a class="card" href=format!("/p/{slug}")>
+                <a class="card" href=format!("/p/{}", post.slug)>
                     {hero_view}
                     <div class="meta-stack">
-                        <div class="meta">{published_at}</div>
+                        <div class="meta">{post.published_at}</div>
                         {updated_view}
                     </div>
-                    <h2>{title}</h2>
-                    <p>{summary}</p>
+                    <h2>{post.title}</h2>
+                    <p>{post.summary}</p>
                     <div class="tags">{tags}{toc_tag}{math_tag}</div>
                 </a>
             }
@@ -599,11 +647,9 @@ fn PostsPage(posts: Vec<PostSummaryView>) -> impl IntoView {
     view! {
         <main class="shell">
             <section class="hero">
-                <div class="eyebrow">"Rustacian Blog PoC"</div>
-                <h1>"Markdown, Actix Web, and Leptos"</h1>
-                <p>
-                    "Local-first で記事を読み込みつつ、Core と adapter を分離した最小ブログ構成です。"
-                </p>
+                <div class="eyebrow">{eyebrow}</div>
+                <h1>{headline}</h1>
+                <p>{summary}</p>
             </section>
             <section class="posts">{post_cards}</section>
         </main>
@@ -611,18 +657,44 @@ fn PostsPage(posts: Vec<PostSummaryView>) -> impl IntoView {
 }
 
 #[component]
-fn PostPage(post: PostView) -> impl IntoView {
-    let hero = post.hero_image.clone();
-    let hero_view = if let Some(src) = hero {
-        view! { <img src=src alt=post.title.clone()/> }.into_any()
-    } else {
-        ().into_any()
-    };
-    let tags = post
-        .tags
+fn TagsPage(tags: Vec<TagLinkView>) -> impl IntoView {
+    let tag_cards = tags
         .into_iter()
-        .map(|tag| view! { <span class="tag">{tag}</span> })
+        .map(|item| {
+            view! {
+                <a class="card" href=item.href>
+                    <div class="eyebrow">"Tag"</div>
+                    <h2>{item.tag}</h2>
+                    <p>{format!("{} post(s)", item.count)}</p>
+                </a>
+            }
+        })
         .collect_view();
+
+    view! {
+        <main class="shell">
+            <section class="hero">
+                <div class="eyebrow">"Tag Archive"</div>
+                <h1>"Browse by tag"</h1>
+                <p>"公開記事から集計したタグ一覧です。"</p>
+            </section>
+            <section class="posts">{tag_cards}</section>
+        </main>
+    }
+}
+
+#[component]
+fn PostPage(post: PostView) -> impl IntoView {
+    let hero_view = post
+        .hero_image
+        .clone()
+        .map(|src| view! { <img src=src alt=post.title.clone()/> }.into_any())
+        .unwrap_or_else(|| ().into_any());
+    let updated_view = post
+        .updated_at
+        .clone()
+        .map(|value| view! { <div class="meta">{format!("Updated {value}")}</div> }.into_any())
+        .unwrap_or_else(|| ().into_any());
     let toc_tag = if post.toc {
         view! { <span class="tag is-info">"TOC"</span> }.into_any()
     } else {
@@ -633,6 +705,11 @@ fn PostPage(post: PostView) -> impl IntoView {
     } else {
         ().into_any()
     };
+    let tags = post
+        .tags
+        .into_iter()
+        .map(|tag| view! { <span class="tag">{tag}</span> })
+        .collect_view();
     let math_fallback_view = if post.math {
         view! {
             <div class="math-fallback-note" data-math-fallback hidden=true>
@@ -643,11 +720,6 @@ fn PostPage(post: PostView) -> impl IntoView {
     } else {
         ().into_any()
     };
-    let updated_view = post
-        .updated_at
-        .clone()
-        .map(|value| view! { <div class="meta">{format!("Updated {value}")}</div> }.into_any())
-        .unwrap_or_else(|| ().into_any());
     let toc_view = if post.toc && !post.toc_items.is_empty() {
         let items = post
             .toc_items
@@ -697,19 +769,48 @@ fn PostPage(post: PostView) -> impl IntoView {
                     .clone()
                     .map(|value| view! { <div class="chart-caption">{value}</div> }.into_any())
                     .unwrap_or_else(|| ().into_any());
-                let source = chart.source.clone();
-                let axis = format!("x: {}, y: {}", chart.x, chart.y);
                 let chart_svg = render_chart_svg(&chart);
+                let table_view = if !chart.table_headers.is_empty() && !chart.table_rows.is_empty()
+                {
+                    let headers = chart
+                        .table_headers
+                        .iter()
+                        .map(|header| view! { <th>{header.clone()}</th> })
+                        .collect_view();
+                    let rows = chart
+                        .table_rows
+                        .iter()
+                        .map(|row| {
+                            let cells = row
+                                .iter()
+                                .map(|cell| view! { <td>{cell.clone()}</td> })
+                                .collect_view();
+                            view! { <tr>{cells}</tr> }
+                        })
+                        .collect_view();
+                    view! {
+                        <div class="chart-table-wrap">
+                            <table class="chart-table">
+                                <thead><tr>{headers}</tr></thead>
+                                <tbody>{rows}</tbody>
+                            </table>
+                        </div>
+                    }
+                    .into_any()
+                } else {
+                    ().into_any()
+                };
 
                 view! {
                     <section class="chart-card">
                         <strong>{title}</strong>
                         <div class="meta">
-                            <code>{source}</code>
+                            <code>{chart.source.clone()}</code>
                             {" / "}
-                            {axis}
+                            {format!("x: {}, y: {}", chart.x, chart.y)}
                         </div>
                         <div inner_html=chart_svg></div>
+                        {table_view}
                         {caption}
                     </section>
                 }
@@ -745,8 +846,98 @@ fn PostPage(post: PostView) -> impl IntoView {
                 {summary_ai_view}
                 {charts_view}
                 <div class="post-body" inner_html=post.body_html.clone()></div>
-                <a class="nav" href="/">"← Back to posts"</a>
+                <a class="nav" href="/">"Back to posts"</a>
             </article>
         </main>
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        ChartPointView, PostSummaryView, PostView, RenderedChartView, TagLinkView,
+        render_post_page, render_tag_posts_page, render_tags_page,
+    };
+
+    fn sample_post_view() -> PostView {
+        PostView {
+            title: "Sample".to_owned(),
+            slug: "sample".to_owned(),
+            published_at: "2026-03-20".to_owned(),
+            updated_at: None,
+            tags: vec!["rust".to_owned()],
+            summary: "summary".to_owned(),
+            hero_image: None,
+            toc: false,
+            math: true,
+            summary_ai: None,
+            charts: vec![RenderedChartView {
+                chart_type: "line".to_owned(),
+                source: "/assets/posts/sample/metrics.csv".to_owned(),
+                x: "step".to_owned(),
+                y: "ms".to_owned(),
+                title: Some("Latency".to_owned()),
+                caption: Some("caption".to_owned()),
+                points: vec![
+                    ChartPointView {
+                        x: "bootstrap".to_owned(),
+                        y: 38.0,
+                    },
+                    ChartPointView {
+                        x: "api".to_owned(),
+                        y: 24.0,
+                    },
+                ],
+                table_headers: vec!["step".to_owned(), "ms".to_owned()],
+                table_rows: vec![
+                    vec!["bootstrap".to_owned(), "38".to_owned()],
+                    vec!["api".to_owned(), "24".to_owned()],
+                ],
+            }],
+            toc_items: Vec::new(),
+            body_html:
+                "<p><span class=\"math-inline\">\\(x^2\\)</span></p><div class=\"math-display\">\\[x+y\\]</div><pre class=\"mermaid\">flowchart LR\nA --&gt; B</pre>"
+                    .to_owned(),
+        }
+    }
+
+    #[test]
+    fn rendered_post_page_includes_math_assets_and_markers() {
+        let html = render_post_page(sample_post_view());
+
+        assert!(html.contains("katex.min.css"));
+        assert!(html.contains("mermaid.esm.min.mjs"));
+        assert!(html.contains("math-inline"));
+        assert!(html.contains("math-display"));
+        assert!(html.contains("pre.mermaid"));
+        assert!(html.contains("renderMathInElement"));
+        assert!(html.contains("<table class=\"chart-table\">"));
+    }
+
+    #[test]
+    fn rendered_tag_pages_include_expected_links() {
+        let tag_html = render_tags_page(vec![TagLinkView {
+            tag: "rust".to_owned(),
+            href: "/tags/rust/".to_owned(),
+            count: 2,
+        }]);
+        let posts_html = render_tag_posts_page(
+            "rust",
+            vec![PostSummaryView {
+                title: "Sample".to_owned(),
+                slug: "sample".to_owned(),
+                published_at: "2026-03-20".to_owned(),
+                updated_at: None,
+                tags: vec!["rust".to_owned()],
+                summary: "summary".to_owned(),
+                hero_image: None,
+                toc: false,
+                math: false,
+            }],
+        );
+
+        assert!(tag_html.contains("/tags/rust/"));
+        assert!(posts_html.contains("Posts tagged rust"));
+        assert!(posts_html.contains("/p/sample"));
     }
 }

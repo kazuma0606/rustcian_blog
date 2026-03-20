@@ -1,6 +1,6 @@
-# Actix Web と Leptos を分けて使う
+# Building with Actix Web and Leptos
 
-バックエンドは API と静的配信を担当し、フロントエンドは Leptos コンポーネントに責務を寄せます。
+バックエンドの API と静的配信を Actix Web で受け持ち、フロントエンドの描画は Leptos で構成する形を試しています。
 
 ## 最小ルーティング
 
@@ -10,4 +10,18 @@
 - `/`
 - `/p/{slug}`
 
-SSR を使うことで、WASM ビルドを待たずに一覧画面と詳細画面を確認できます。
+## いま見ているポイント
+
+- Actix を API と配信の境界に置く
+- Leptos を UI と HTML 生成に使う
+- Chart 用 CSV をメタデータから読み込んで描画する
+
+このページでは chart を SVG と table の両方で確認し、記事本文に Mermaid 図も混ぜられるようにしています。
+
+## Mermaid preview
+
+```mermaid
+flowchart LR
+    Core --> Backend
+    Backend --> Frontend
+```

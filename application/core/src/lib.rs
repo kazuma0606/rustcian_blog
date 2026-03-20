@@ -1,7 +1,11 @@
 pub mod application;
 pub mod domain;
 
-pub use application::usecase::{GenerateAiMetadataUseCase, GetPostUseCase, ListPostsUseCase};
+pub use application::usecase::{
+    GenerateAiMetadataUseCase, GenerateStaticSiteUseCase, GetPostUseCase, ListPostsUseCase,
+    PublishStaticSiteUseCase,
+};
+pub use domain::admin::{AdminAuthError, AdminAuthService, AdminIdentity};
 pub use domain::ai::{
     AiAssistRequest, AiGenerationScope, AiMetadataGenerator, GeneratedMetadata,
     GeneratedMetadataStore,
@@ -12,3 +16,6 @@ pub use domain::post::{
     RenderedChart, TocItem,
 };
 pub use domain::repository::PostRepository;
+pub use domain::static_site::{
+    AssetStore, StaticAsset, StaticPage, StaticSiteBuild, StaticSiteGenerator, StaticSitePublisher,
+};

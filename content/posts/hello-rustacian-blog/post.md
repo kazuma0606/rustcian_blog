@@ -1,20 +1,28 @@
 # Hello Rustacian Blog
 
-このブログは Rust を中心にしたフルスタック構成の検証用 PoC です。
+このブログは Rust を中心にしたフルスタック構成の PoC です。`application/core` にドメインを寄せ、Web とストレージは adapter として差し替えられる形を目指しています。
 
 ![Ferris notes](/images/ferris-notes.svg)
 
 ## この PoC で確認したいこと
 
-- Core と Web 層の分離
-- Markdown 記事の読み込み
-- Azurite を前提にした設定切り替え
+- Core と Web 層の責務分離
+- Markdown と `meta.yml` ベースの記事運用
+- Azurite を使った Blob 風の配信フロー
 
-今はローカルコンテンツを直接読んでいますが、Repository 境界は Azure 実装へ差し替え可能です。
+Repository 境界を先に決めておけば、ローカル運用から Azure 構成へ段階的に移行できます。
+
+## 画像表示の確認
+
+JPEG と PNG の表示確認用に、既存の静的画像も本文から参照します。
+
+![Workspace photo](/images/134099572612174367.jpg)
+
+![Gradient norms chart](/images/exp1_grad_norms.png)
 
 ## 数式表示の確認
 
-インライン数式の例として $e^{i\pi} + 1 = 0$ を置いておきます。
+インライン数式として $e^{i\pi} + 1 = 0$ を表示します。
 
 ブロック数式:
 

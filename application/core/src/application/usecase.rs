@@ -8,6 +8,7 @@ use crate::domain::{
     error::BlogError,
     post::{Post, PostSummary, PostVisibility},
     repository::PostRepository,
+    static_site::{StaticSiteGenerator, StaticSitePublisher},
 };
 
 #[derive(Clone)]
@@ -66,6 +67,45 @@ pub struct GenerateAiMetadataUseCase {
     metadata_store: Arc<dyn GeneratedMetadataStore>,
 }
 
+#[derive(Clone)]
+pub struct GenerateStaticSiteUseCase {
+    generator: Arc<dyn StaticSiteGenerator>,
+}
+
+#[derive(Clone)]
+pub struct PublishStaticSiteUseCase {
+    generator: Arc<dyn StaticSiteGenerator>,
+    publisher: Arc<dyn StaticSitePublisher>,
+}
+
+impl GenerateStaticSiteUseCase {
+    pub fn new(generator: Arc<dyn StaticSiteGenerator>) -> Self {
+        Self { generator }
+    }
+
+    pub async fn execute(&self) -> Result<crate::StaticSiteBuild, BlogError> {
+        self.generator.generate().await
+    }
+}
+
+impl PublishStaticSiteUseCase {
+    pub fn new(
+        generator: Arc<dyn StaticSiteGenerator>,
+        publisher: Arc<dyn StaticSitePublisher>,
+    ) -> Self {
+        Self {
+            generator,
+            publisher,
+        }
+    }
+
+    pub async fn execute(&self) -> Result<crate::StaticSiteBuild, BlogError> {
+        let build = self.generator.generate().await?;
+        self.publisher.publish(&build).await?;
+        Ok(build)
+    }
+}
+
 impl GenerateAiMetadataUseCase {
     pub fn new(
         repository: Arc<dyn PostRepository>,
@@ -108,12 +148,18 @@ mod tests {
 
     use super::*;
     use crate::{AiGenerationScope, GeneratedMetadata, PostMetadata, PostStatus, PostVisibility};
+    use crate::{StaticAsset, StaticPage, StaticSiteBuild};
 
     struct MockRepository {
         posts: Vec<Post>,
     }
 
     struct MockGenerator;
+    struct MockStaticSiteGenerator;
+    #[derive(Default)]
+    struct MockStaticSitePublisher {
+        published: std::sync::Mutex<Vec<StaticSiteBuild>>,
+    }
 
     #[async_trait::async_trait]
     impl AiMetadataGenerator for MockGenerator {
@@ -129,6 +175,30 @@ mod tests {
                 generated_at: Utc.with_ymd_and_hms(2026, 3, 20, 12, 0, 0).unwrap(),
                 source_model: Some("test-model".to_owned()),
             })
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl StaticSiteGenerator for MockStaticSiteGenerator {
+        async fn generate(&self) -> Result<StaticSiteBuild, BlogError> {
+            Ok(StaticSiteBuild {
+                pages: vec![StaticPage {
+                    path: "index.html".to_owned(),
+                    content: "<html></html>".to_owned(),
+                }],
+                assets: vec![StaticAsset {
+                    source_path: "content/images/sample.png".to_owned(),
+                    output_path: "images/sample.png".to_owned(),
+                }],
+            })
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl StaticSitePublisher for MockStaticSitePublisher {
+        async fn publish(&self, build: &StaticSiteBuild) -> Result<(), BlogError> {
+            self.published.lock().unwrap().push(build.clone());
+            Ok(())
         }
     }
 
@@ -263,5 +333,31 @@ mod tests {
         assert_eq!(saved.len(), 1);
         assert_eq!(saved[0].0, "draft-post");
         assert_eq!(saved[0].1.source_model.as_deref(), Some("test-model"));
+    }
+
+    #[tokio::test]
+    async fn generate_static_site_returns_pages_and_assets() {
+        let use_case = GenerateStaticSiteUseCase::new(Arc::new(MockStaticSiteGenerator));
+
+        let build = use_case.execute().await.unwrap();
+
+        assert_eq!(build.pages.len(), 1);
+        assert_eq!(build.pages[0].path, "index.html");
+        assert_eq!(build.assets.len(), 1);
+        assert_eq!(build.assets[0].output_path, "images/sample.png");
+    }
+
+    #[tokio::test]
+    async fn publish_static_site_generates_and_publishes_build() {
+        let publisher = Arc::new(MockStaticSitePublisher::default());
+        let use_case =
+            PublishStaticSiteUseCase::new(Arc::new(MockStaticSiteGenerator), publisher.clone());
+
+        let build = use_case.execute().await.unwrap();
+
+        assert_eq!(build.pages.len(), 1);
+        let published = publisher.published.lock().unwrap();
+        assert_eq!(published.len(), 1);
+        assert_eq!(published[0].pages[0].path, "index.html");
     }
 }

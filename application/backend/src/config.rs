@@ -1,4 +1,4 @@
-use std::{env, path::PathBuf};
+use std::{env, path::{Path, PathBuf}};
 
 use rustacian_blog_core::BlogError;
 
@@ -19,13 +19,21 @@ pub struct AppConfig {
     pub admin_auth_mode: String,
     pub entra_tenant_id: Option<String>,
     pub entra_client_id: Option<String>,
+    pub entra_oidc_metadata_url: Option<String>,
     pub entra_admin_group_id: Option<String>,
     pub entra_admin_user_oid: Option<String>,
+    pub static_output_dir: PathBuf,
+    pub static_publish_backend: String,
+    pub static_publish_prefix: String,
+    pub observability_backend: String,
+    pub application_insights_connection_string: Option<String>,
+    pub base_url: String,
 }
 
 impl AppConfig {
     pub fn from_env() -> Result<Self, BlogError> {
         let storage_backend = env::var("STORAGE_BACKEND").unwrap_or_else(|_| "azurite".to_owned());
+        let workspace_root = workspace_root();
 
         Ok(Self {
             app_env: env::var("APP_ENV").unwrap_or_else(|_| "local".to_owned()),
@@ -35,7 +43,8 @@ impl AppConfig {
                 .and_then(|value| value.parse::<u16>().ok())
                 .unwrap_or(8080),
             storage_backend: storage_backend.clone(),
-            content_root: PathBuf::from(
+            content_root: resolve_workspace_path(
+                &workspace_root,
                 env::var("CONTENT_ROOT").unwrap_or_else(|_| "./content".to_owned()),
             ),
             azurite_blob_endpoint: Some(env::var("AZURITE_BLOB_ENDPOINT").unwrap_or_else(|_| {
@@ -63,8 +72,29 @@ impl AppConfig {
             admin_auth_mode: env::var("ADMIN_AUTH_MODE").unwrap_or_else(|_| "disabled".to_owned()),
             entra_tenant_id: env::var("ENTRA_TENANT_ID").ok(),
             entra_client_id: env::var("ENTRA_CLIENT_ID").ok(),
+            entra_oidc_metadata_url: env::var("ENTRA_OIDC_METADATA_URL").ok(),
             entra_admin_group_id: env::var("ENTRA_ADMIN_GROUP_ID").ok(),
             entra_admin_user_oid: env::var("ENTRA_ADMIN_USER_OID").ok(),
+            static_output_dir: resolve_workspace_path(
+                &workspace_root,
+                env::var("STATIC_OUTPUT_DIR").unwrap_or_else(|_| "./dist".to_owned()),
+            ),
+            static_publish_backend: env::var("STATIC_PUBLISH_BACKEND")
+                .unwrap_or_else(|_| "local".to_owned()),
+            static_publish_prefix: env::var("STATIC_PUBLISH_PREFIX")
+                .unwrap_or_else(|_| "site".to_owned())
+                .trim_matches('/')
+                .to_owned(),
+            observability_backend: env::var("OBSERVABILITY_BACKEND")
+                .unwrap_or_else(|_| "stdout".to_owned()),
+            application_insights_connection_string: env::var(
+                "APPLICATIONINSIGHTS_CONNECTION_STRING",
+            )
+            .ok(),
+            base_url: env::var("BASE_URL")
+                .unwrap_or_else(|_| "http://127.0.0.1:8080".to_owned())
+                .trim_end_matches('/')
+                .to_owned(),
         })
     }
 
@@ -78,6 +108,21 @@ impl AppConfig {
 
     pub fn metadata_dir(&self) -> PathBuf {
         self.content_root.join("metadata")
+    }
+}
+
+fn workspace_root() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+}
+
+fn resolve_workspace_path(workspace_root: &Path, value: String) -> PathBuf {
+    let path = PathBuf::from(value);
+    if path.is_absolute() {
+        path
+    } else {
+        workspace_root.join(path)
     }
 }
 

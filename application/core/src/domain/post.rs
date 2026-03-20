@@ -61,6 +61,10 @@ pub struct RenderedChart {
     pub caption: Option<String>,
     #[serde(default)]
     pub points: Vec<ChartPoint>,
+    #[serde(default)]
+    pub table_headers: Vec<String>,
+    #[serde(default)]
+    pub table_rows: Vec<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
