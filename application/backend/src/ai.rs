@@ -188,6 +188,7 @@ impl GeneratedMetadataStore for LocalGeneratedMetadataStore {
 #[async_trait::async_trait]
 impl GeneratedMetadataStore for AzuriteGeneratedMetadataStore {
     async fn save(&self, slug: &str, metadata: &GeneratedMetadata) -> Result<(), BlogError> {
+        self.blob.create_container_if_needed().await?;
         let body = serde_json::to_vec_pretty(metadata)
             .map_err(|error| BlogError::Parse(error.to_string()))?;
         let blob_name = format!("metadata/{slug}.json");
