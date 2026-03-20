@@ -5,7 +5,7 @@ Pure Rust blog application playground.
 This repository currently includes:
 - `v1`: local blog PoC
 - `v1.5`: CI and security baseline
-- `v2`: next-stage feature planning
+- `v2`: content operations, math, charts, AI assist, and admin preview PoC
 
 ## Features
 - Rust workspace layout
@@ -54,19 +54,25 @@ cargo test
 ```
 
 ## Content
-- Posts: `content/posts/*.md`
+- Posts: `content/posts/<slug>/post.md`
+- Metadata: `content/posts/<slug>/meta.yml`
+- Supplemental metadata: `content/metadata/<slug>.json`
 - Images: `content/images/*`
+- Article assets: `content/posts/<slug>/*`
 
-Minimal Frontmatter example:
+Minimal `meta.yml` example:
 
 ```yaml
 title: Hello Rustacian Blog
 slug: hello-rustacian-blog
 published_at: 2026-03-18T09:00:00Z
+status: published
 tags:
   - rust
 summary: sample post
 hero_image: /images/ferris-notes.svg
+toc: true
+math: true
 ```
 
 ## CI and Security
@@ -83,15 +89,24 @@ GitHub Actions runs:
 
 ## Docs
 - [Root plan](./plan.md)
+- [v2 plan](./v2/plan.md)
+- [v2 tasks](./v2/tasks.md)
+- [v2 spec](./v2/spec.md)
+
+<details>
+<summary>Previous Phase Docs</summary>
+
 - [v1 plan](./v1/plan.md)
 - [v1 tasks](./v1/tasks.md)
 - [v1 spec](./v1/spec.md)
 - [v1.5 plan](./v1.5/plan.md)
 - [v1.5 tasks](./v1.5/tasks.md)
 - [v1.5 spec](./v1.5/spec.md)
-- [v2 plan](./v2/plan.md)
+
+</details>
 
 ## Notes
 - The public app is currently read-only.
 - Post updates are Git/Markdown based.
-- Next areas: `draft/published`, LaTeX, CSV charts, Azure OpenAI support.
+- `v2` uses article directories with `post.md` + `meta.yml`.
+- Admin preview is split under `/admin/preview/{slug}` and uses Entra ID PoC mode when enabled.
