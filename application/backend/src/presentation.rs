@@ -2,11 +2,11 @@ use crate::state::AppState;
 use actix_web::{
     HttpRequest, HttpResponse, Result, cookie::Cookie, get, http::header::ContentType, web,
 };
-use std::{fs, path::Path};
 use rustacian_blog_core::{
     AdminAuthError, AiGenerationScope, BlogError, Post, PostSummary, PostVisibility,
 };
 use rustacian_blog_frontend::{render_post_page, render_posts_page};
+use std::{fs, path::Path};
 
 use crate::observability::AppEvent;
 
@@ -116,16 +116,20 @@ async fn get_image(path: web::Path<String>, data: web::Data<AppState>) -> Result
             .await
             .map_err(internal_app_error)?
     {
-        return Ok(binary_response(bytes, content_type.as_deref().unwrap_or("application/octet-stream")));
+        return Ok(binary_response(
+            bytes,
+            content_type
+                .as_deref()
+                .unwrap_or("application/octet-stream"),
+        ));
     }
 
     let file_path = data.config.images_dir().join(&relative);
     if !file_path.exists() {
         return Err(actix_web::error::ErrorNotFound("image not found"));
     }
-    let bytes = fs::read(&file_path).map_err(|error| {
-        internal_app_error(BlogError::Storage(error.to_string()))
-    })?;
+    let bytes = fs::read(&file_path)
+        .map_err(|error| internal_app_error(BlogError::Storage(error.to_string())))?;
 
     Ok(binary_response(bytes, infer_content_type(&file_path)))
 }
