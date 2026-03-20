@@ -1,0 +1,12 @@
+title: Hello Rustacian Blog
+slug: hello-rustacian-blog
+published_at: 2026-03-18T09:00:00Z
+updated_at: 2026-03-20T12:00:00Z
+tags:
+  - rust
+  - architecture
+summary: 最初のサンプル記事。Rust フルスタック構成の PoC の狙いをまとめる。
+hero_image: /images/ferris-notes.svg
+status: published
+toc: true
+math: true

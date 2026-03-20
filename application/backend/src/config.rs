@@ -11,6 +11,16 @@ pub struct AppConfig {
     pub content_root: PathBuf,
     pub azurite_blob_endpoint: Option<String>,
     pub azurite_table_endpoint: Option<String>,
+    pub azure_openai_endpoint: Option<String>,
+    pub azure_openai_deployment: Option<String>,
+    pub azure_openai_api_key: Option<String>,
+    pub azure_openai_api_version: String,
+    pub azure_openai_model_name: Option<String>,
+    pub admin_auth_mode: String,
+    pub entra_tenant_id: Option<String>,
+    pub entra_client_id: Option<String>,
+    pub entra_admin_group_id: Option<String>,
+    pub entra_admin_user_oid: Option<String>,
 }
 
 impl AppConfig {
@@ -44,6 +54,17 @@ impl AppConfig {
                 }
             }))
             .filter(|value| !value.is_empty()),
+            azure_openai_endpoint: env::var("AZURE_OPENAI_ENDPOINT").ok(),
+            azure_openai_deployment: env::var("AZURE_OPENAI_DEPLOYMENT").ok(),
+            azure_openai_api_key: env::var("AZURE_OPENAI_API_KEY").ok(),
+            azure_openai_api_version: env::var("AZURE_OPENAI_API_VERSION")
+                .unwrap_or_else(|_| "2024-10-21".to_owned()),
+            azure_openai_model_name: env::var("AZURE_OPENAI_MODEL_NAME").ok(),
+            admin_auth_mode: env::var("ADMIN_AUTH_MODE").unwrap_or_else(|_| "disabled".to_owned()),
+            entra_tenant_id: env::var("ENTRA_TENANT_ID").ok(),
+            entra_client_id: env::var("ENTRA_CLIENT_ID").ok(),
+            entra_admin_group_id: env::var("ENTRA_ADMIN_GROUP_ID").ok(),
+            entra_admin_user_oid: env::var("ENTRA_ADMIN_USER_OID").ok(),
         })
     }
 
@@ -53,6 +74,10 @@ impl AppConfig {
 
     pub fn images_dir(&self) -> PathBuf {
         self.content_root.join("images")
+    }
+
+    pub fn metadata_dir(&self) -> PathBuf {
+        self.content_root.join("metadata")
     }
 }
 

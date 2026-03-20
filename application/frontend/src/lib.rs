@@ -2,13 +2,40 @@ use leptos::prelude::*;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TocItemView {
+    pub level: u8,
+    pub title: String,
+    pub anchor: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ChartPointView {
+    pub x: String,
+    pub y: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct RenderedChartView {
+    pub chart_type: String,
+    pub source: String,
+    pub x: String,
+    pub y: String,
+    pub title: Option<String>,
+    pub caption: Option<String>,
+    pub points: Vec<ChartPointView>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PostSummaryView {
     pub title: String,
     pub slug: String,
     pub published_at: String,
+    pub updated_at: Option<String>,
     pub tags: Vec<String>,
     pub summary: String,
     pub hero_image: Option<String>,
+    pub toc: bool,
+    pub math: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -16,24 +43,70 @@ pub struct PostView {
     pub title: String,
     pub slug: String,
     pub published_at: String,
+    pub updated_at: Option<String>,
     pub tags: Vec<String>,
     pub summary: String,
     pub hero_image: Option<String>,
+    pub toc: bool,
+    pub math: bool,
+    pub summary_ai: Option<String>,
+    pub charts: Vec<RenderedChartView>,
+    pub toc_items: Vec<TocItemView>,
     pub body_html: String,
 }
 
 pub fn render_posts_page(posts: Vec<PostSummaryView>) -> String {
     let body = view! { <PostsPage posts=posts/> }.to_html();
-    wrap_document("Rustacian Blog", &body)
+    wrap_document("Rustacian Blog", &body, false)
 }
 
 pub fn render_post_page(post: PostView) -> String {
     let title = post.title.clone();
+    let enable_math = post.math;
     let body = view! { <PostPage post=post/> }.to_html();
-    wrap_document(&title, &body)
+    wrap_document(&title, &body, enable_math)
 }
 
-fn wrap_document(title: &str, body: &str) -> String {
+fn wrap_document(title: &str, body: &str, enable_math: bool) -> String {
+    let math_head = if enable_math {
+        r#"
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"></script>
+    <script>
+      document.addEventListener("DOMContentLoaded", function () {
+        function showMathFallback(message) {
+          document.body.classList.add("math-fallback");
+          var note = document.querySelector("[data-math-fallback]");
+          if (note) {
+            note.hidden = false;
+            note.textContent = message;
+          }
+        }
+
+        if (window.renderMathInElement) {
+          try {
+            window.renderMathInElement(document.body, {
+              delimiters: [
+                { left: "$$", right: "$$", display: true },
+                { left: "\\[", right: "\\]", display: true },
+                { left: "$", right: "$", display: false },
+                { left: "\\(", right: "\\)", display: false }
+              ],
+              throwOnError: false
+            });
+          } catch (error) {
+            showMathFallback("Math rendering is unavailable. Raw formulas are shown instead.");
+          }
+        } else {
+          showMathFallback("Math rendering is unavailable. Raw formulas are shown instead.");
+        }
+      });
+    </script>"#
+    } else {
+        ""
+    };
+
     format!(
         r#"<!doctype html>
 <html lang="ja">
@@ -41,6 +114,7 @@ fn wrap_document(title: &str, body: &str) -> String {
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{title}</title>
+    {math_head}
     <style>
       :root {{
         --bg: #f7f1e7;
@@ -107,6 +181,10 @@ fn wrap_document(title: &str, body: &str) -> String {
         color: var(--muted);
         font-size: 14px;
       }}
+      .meta-stack {{
+        display: grid;
+        gap: 6px;
+      }}
       .tags {{
         display: flex;
         flex-wrap: wrap;
@@ -121,6 +199,10 @@ fn wrap_document(title: &str, body: &str) -> String {
         color: #713f12;
         font-size: 13px;
       }}
+      .tag.is-info {{
+        background: #f2eadc;
+        color: var(--muted);
+      }}
       .post {{
         margin-top: 28px;
         padding: 28px;
@@ -128,8 +210,126 @@ fn wrap_document(title: &str, body: &str) -> String {
         border: 1px solid var(--line);
         background: rgba(255, 252, 246, 0.94);
       }}
+      .toc {{
+        margin-top: 24px;
+        padding: 18px 20px;
+        border: 1px solid var(--line);
+        border-radius: 20px;
+        background: rgba(247, 241, 231, 0.8);
+      }}
+      .toc h2 {{
+        margin: 0 0 12px;
+        font-size: 18px;
+      }}
+      .toc ul {{
+        margin: 0;
+        padding-left: 18px;
+        display: grid;
+        gap: 8px;
+      }}
+      .toc a {{
+        text-decoration: none;
+        color: var(--accent);
+      }}
       .post-body {{
         line-height: 1.7;
+      }}
+      .post-body pre {{
+        margin: 20px 0;
+        padding: 18px 20px;
+        overflow-x: auto;
+        border-radius: 18px;
+        border: 1px solid #d8c5ad;
+        background: #2a211c;
+        color: #f8efe4;
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+      }}
+      .post-body pre code {{
+        display: block;
+        padding: 0;
+        background: transparent;
+        color: inherit;
+        border: 0;
+      }}
+      .post-body code {{
+        padding: 0.15em 0.45em;
+        border-radius: 8px;
+        background: rgba(239, 216, 185, 0.45);
+        border: 1px solid rgba(179, 84, 30, 0.12);
+        color: #713f12;
+        font-family: "Courier New", monospace;
+        font-size: 0.95em;
+      }}
+      .post-body .katex-display {{
+        overflow-x: auto;
+        overflow-y: hidden;
+        padding: 8px 0;
+      }}
+      .math-fallback-note {{
+        margin-top: 24px;
+        padding: 14px 16px;
+        border: 1px solid #d3b689;
+        border-radius: 16px;
+        background: rgba(239, 216, 185, 0.55);
+        color: #7c4a1d;
+      }}
+      body.math-fallback .post-body .math-inline,
+      body.math-fallback .post-body .math-display {{
+        display: inline-block;
+        padding: 2px 6px;
+        border-radius: 8px;
+        background: rgba(247, 241, 231, 0.95);
+        border: 1px dashed var(--line);
+        font-family: "Courier New", monospace;
+        white-space: pre-wrap;
+      }}
+      body.math-fallback .post-body .math-display {{
+        display: block;
+        padding: 12px 14px;
+        margin: 16px 0;
+        overflow-x: auto;
+      }}
+      .ai-summary {{
+        margin-top: 24px;
+        padding: 18px 20px;
+        border-left: 4px solid var(--accent);
+        background: rgba(239, 216, 185, 0.4);
+        border-radius: 12px;
+      }}
+      .chart-list {{
+        margin-top: 24px;
+        padding: 18px 20px;
+        border: 1px solid var(--line);
+        border-radius: 20px;
+        background: rgba(247, 241, 231, 0.7);
+      }}
+      .chart-card {{
+        display: grid;
+        gap: 12px;
+        padding: 18px 0;
+        border-top: 1px solid rgba(217, 194, 163, 0.8);
+      }}
+      .chart-card:first-child {{
+        padding-top: 0;
+        border-top: 0;
+      }}
+      .chart-svg {{
+        width: 100%;
+        height: auto;
+        border-radius: 16px;
+        border: 1px solid rgba(217, 194, 163, 0.8);
+        background: linear-gradient(180deg, rgba(255, 252, 246, 0.96), rgba(247, 241, 231, 0.82));
+      }}
+      .chart-caption {{
+        color: var(--muted);
+        font-size: 14px;
+      }}
+      .chart-list h2 {{
+        margin: 0 0 12px;
+        font-size: 18px;
+      }}
+      .chart-list code {{
+        font-size: 13px;
       }}
       .post-body h1, .post-body h2, .post-body h3 {{
         margin-top: 1.8em;
@@ -151,6 +351,199 @@ fn wrap_document(title: &str, body: &str) -> String {
     )
 }
 
+fn render_chart_svg(chart: &RenderedChartView) -> String {
+    if chart.points.is_empty() {
+        return String::new();
+    }
+
+    let width = 640.0;
+    let height = 280.0;
+    let left = 54.0;
+    let right = 22.0;
+    let top = 20.0;
+    let bottom = 54.0;
+    let plot_width = width - left - right;
+    let plot_height = height - top - bottom;
+    let max_y = chart
+        .points
+        .iter()
+        .map(|point| point.y)
+        .fold(0.0_f64, f64::max)
+        .max(1.0);
+    let step_x = if chart.points.len() > 1 {
+        plot_width / (chart.points.len() - 1) as f64
+    } else {
+        plot_width / 2.0
+    };
+
+    let coordinates = chart
+        .points
+        .iter()
+        .enumerate()
+        .map(|(index, point)| {
+            let x = if chart.points.len() > 1 {
+                left + step_x * index as f64
+            } else {
+                left + plot_width / 2.0
+            };
+            let y = top + plot_height - (point.y / max_y) * plot_height;
+            (x, y, point)
+        })
+        .collect::<Vec<_>>();
+
+    let grid = (0..=4)
+        .map(|index| {
+            let ratio = index as f64 / 4.0;
+            let y = top + plot_height - ratio * plot_height;
+            let value = max_y * ratio;
+            format!(
+                "<g><line x1=\"{left}\" y1=\"{y:.1}\" x2=\"{}\" y2=\"{y:.1}\" stroke=\"rgba(82, 96, 109, 0.18)\" stroke-width=\"1\" /><text x=\"10\" y=\"{:.1}\" fill=\"#52606d\" font-size=\"12\">{value:.0}</text></g>",
+                width - right,
+                y + 4.0
+            )
+        })
+        .collect::<String>();
+
+    let labels = coordinates
+        .iter()
+        .map(|(x, _, point)| {
+            format!(
+                "<text x=\"{x:.1}\" y=\"{}\" text-anchor=\"middle\" fill=\"#52606d\" font-size=\"12\">{}</text>",
+                height - 18.0,
+                escape_html(&point.x)
+            )
+        })
+        .collect::<String>();
+
+    let series = match chart.chart_type.as_str() {
+        "bar" => {
+            let bar_width = (plot_width / chart.points.len().max(1) as f64 * 0.55).max(18.0);
+            coordinates
+                .iter()
+                .map(|(x, y, point)| {
+                    let bar_height = top + plot_height - y;
+                    format!(
+                        "<g><rect x=\"{:.1}\" y=\"{y:.1}\" width=\"{bar_width:.1}\" height=\"{bar_height:.1}\" rx=\"8\" fill=\"#b3541e\" opacity=\"0.82\" /><text x=\"{x:.1}\" y=\"{:.1}\" text-anchor=\"middle\" fill=\"#7c4a1d\" font-size=\"12\">{:.0}</text></g>",
+                        x - bar_width / 2.0,
+                        y - 8.0,
+                        point.y
+                    )
+                })
+                .collect::<String>()
+        }
+        "scatter" => coordinates
+            .iter()
+            .map(|(x, y, point)| {
+                format!(
+                    "<g><circle cx=\"{x:.1}\" cy=\"{y:.1}\" r=\"6\" fill=\"#b3541e\" /><text x=\"{x:.1}\" y=\"{:.1}\" text-anchor=\"middle\" fill=\"#7c4a1d\" font-size=\"12\">{:.0}</text></g>",
+                    y - 12.0,
+                    point.y
+                )
+            })
+            .collect::<String>(),
+        _ => {
+            let path = coordinates
+                .iter()
+                .enumerate()
+                .map(|(index, (x, y, _))| {
+                    if index == 0 {
+                        format!("M {x:.1} {y:.1}")
+                    } else {
+                        format!(" L {x:.1} {y:.1}")
+                    }
+                })
+                .collect::<String>();
+            let markers = coordinates
+                .iter()
+                .map(|(x, y, point)| {
+                    format!(
+                        "<g><circle cx=\"{x:.1}\" cy=\"{y:.1}\" r=\"5\" fill=\"#b3541e\" /><text x=\"{x:.1}\" y=\"{:.1}\" text-anchor=\"middle\" fill=\"#7c4a1d\" font-size=\"12\">{:.0}</text></g>",
+                        y - 12.0,
+                        point.y
+                    )
+                })
+                .collect::<String>();
+            format!(
+                "<path d=\"{path}\" fill=\"none\" stroke=\"#b3541e\" stroke-width=\"3\" stroke-linecap=\"round\" stroke-linejoin=\"round\" />{markers}"
+            )
+        }
+    };
+
+    format!(
+        "<svg class=\"chart-svg\" viewBox=\"0 0 {width:.0} {height:.0}\" role=\"img\" aria-label=\"{}\"><line x1=\"{left}\" y1=\"{}\" x2=\"{}\" y2=\"{}\" stroke=\"#8d6e52\" stroke-width=\"1.5\" /><line x1=\"{left}\" y1=\"{top}\" x2=\"{left}\" y2=\"{}\" stroke=\"#8d6e52\" stroke-width=\"1.5\" />{grid}{series}{labels}<text x=\"{}\" y=\"{}\" text-anchor=\"middle\" fill=\"#52606d\" font-size=\"12\">{}</text><text x=\"18\" y=\"{}\" text-anchor=\"middle\" fill=\"#52606d\" font-size=\"12\" transform=\"rotate(-90 18,{})\">{}</text></svg>",
+        escape_html(chart.title.as_deref().unwrap_or("Chart")),
+        top + plot_height,
+        width - right,
+        top + plot_height,
+        top + plot_height,
+        left + plot_width / 2.0,
+        height - 2.0,
+        escape_html(&chart.x),
+        top + plot_height / 2.0,
+        top + plot_height / 2.0,
+        escape_html(&chart.y)
+    )
+}
+
+fn escape_html(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#39;")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ChartPointView, PostView, RenderedChartView, render_post_page};
+
+    fn sample_post_view() -> PostView {
+        PostView {
+            title: "Sample".to_owned(),
+            slug: "sample".to_owned(),
+            published_at: "2026-03-20".to_owned(),
+            updated_at: None,
+            tags: vec!["rust".to_owned()],
+            summary: "summary".to_owned(),
+            hero_image: None,
+            toc: false,
+            math: true,
+            summary_ai: None,
+            charts: vec![RenderedChartView {
+                chart_type: "line".to_owned(),
+                source: "/assets/posts/sample/metrics.csv".to_owned(),
+                x: "step".to_owned(),
+                y: "ms".to_owned(),
+                title: Some("Latency".to_owned()),
+                caption: Some("caption".to_owned()),
+                points: vec![
+                    ChartPointView {
+                        x: "bootstrap".to_owned(),
+                        y: 38.0,
+                    },
+                    ChartPointView {
+                        x: "api".to_owned(),
+                        y: 24.0,
+                    },
+                ],
+            }],
+            toc_items: Vec::new(),
+            body_html: "<p><span class=\"math-inline\">\\(x^2\\)</span></p><div class=\"math-display\">\\[x+y\\]</div>".to_owned(),
+        }
+    }
+
+    #[test]
+    fn rendered_post_page_includes_math_assets_and_markers() {
+        let html = render_post_page(sample_post_view());
+
+        assert!(html.contains("katex.min.css"));
+        assert!(html.contains("math-inline"));
+        assert!(html.contains("math-display"));
+        assert!(html.contains("renderMathInElement"));
+    }
+}
+
 #[component]
 fn PostsPage(posts: Vec<PostSummaryView>) -> impl IntoView {
     let post_cards = posts
@@ -160,6 +553,7 @@ fn PostsPage(posts: Vec<PostSummaryView>) -> impl IntoView {
             let slug = post.slug;
             let title = post.title;
             let published_at = post.published_at;
+            let updated_at = post.updated_at;
             let summary = post.summary;
             let hero_view = if let Some(src) = hero {
                 view! { <img src=src alt=title.clone()/> }.into_any()
@@ -171,14 +565,32 @@ fn PostsPage(posts: Vec<PostSummaryView>) -> impl IntoView {
                 .into_iter()
                 .map(|tag| view! { <span class="tag">{tag}</span> })
                 .collect_view();
+            let updated_view = updated_at
+                .map(|value| {
+                    view! { <div class="meta">{format!("Updated {value}")}</div> }.into_any()
+                })
+                .unwrap_or_else(|| ().into_any());
+            let toc_tag = if post.toc {
+                view! { <span class="tag is-info">"TOC"</span> }.into_any()
+            } else {
+                ().into_any()
+            };
+            let math_tag = if post.math {
+                view! { <span class="tag is-info">"Math"</span> }.into_any()
+            } else {
+                ().into_any()
+            };
 
             view! {
                 <a class="card" href=format!("/p/{slug}")>
                     {hero_view}
-                    <div class="meta">{published_at}</div>
+                    <div class="meta-stack">
+                        <div class="meta">{published_at}</div>
+                        {updated_view}
+                    </div>
                     <h2>{title}</h2>
                     <p>{summary}</p>
-                    <div class="tags">{tags}</div>
+                    <div class="tags">{tags}{toc_tag}{math_tag}</div>
                 </a>
             }
         })
@@ -211,6 +623,108 @@ fn PostPage(post: PostView) -> impl IntoView {
         .into_iter()
         .map(|tag| view! { <span class="tag">{tag}</span> })
         .collect_view();
+    let toc_tag = if post.toc {
+        view! { <span class="tag is-info">"TOC"</span> }.into_any()
+    } else {
+        ().into_any()
+    };
+    let math_tag = if post.math {
+        view! { <span class="tag is-info">"Math"</span> }.into_any()
+    } else {
+        ().into_any()
+    };
+    let math_fallback_view = if post.math {
+        view! {
+            <div class="math-fallback-note" data-math-fallback hidden=true>
+                "Math rendering is unavailable. Raw formulas are shown instead."
+            </div>
+        }
+        .into_any()
+    } else {
+        ().into_any()
+    };
+    let updated_view = post
+        .updated_at
+        .clone()
+        .map(|value| view! { <div class="meta">{format!("Updated {value}")}</div> }.into_any())
+        .unwrap_or_else(|| ().into_any());
+    let toc_view = if post.toc && !post.toc_items.is_empty() {
+        let items = post
+            .toc_items
+            .into_iter()
+            .map(|item| {
+                view! {
+                    <li>
+                        <a href=format!("#{}", item.anchor)>{item.title}</a>
+                    </li>
+                }
+            })
+            .collect_view();
+        view! {
+            <nav class="toc" aria-label="Table of contents">
+                <h2>"Contents"</h2>
+                <ul>{items}</ul>
+            </nav>
+        }
+        .into_any()
+    } else {
+        ().into_any()
+    };
+    let summary_ai_view = post
+        .summary_ai
+        .clone()
+        .map(|value| {
+            view! {
+                <section class="ai-summary">
+                    <div class="eyebrow">"AI Summary"</div>
+                    <p>{value}</p>
+                </section>
+            }
+            .into_any()
+        })
+        .unwrap_or_else(|| ().into_any());
+    let charts_view = if !post.charts.is_empty() {
+        let items = post
+            .charts
+            .into_iter()
+            .map(|chart| {
+                let title = chart
+                    .title
+                    .clone()
+                    .unwrap_or_else(|| format!("{} chart", chart.chart_type));
+                let caption = chart
+                    .caption
+                    .clone()
+                    .map(|value| view! { <div class="chart-caption">{value}</div> }.into_any())
+                    .unwrap_or_else(|| ().into_any());
+                let source = chart.source.clone();
+                let axis = format!("x: {}, y: {}", chart.x, chart.y);
+                let chart_svg = render_chart_svg(&chart);
+
+                view! {
+                    <section class="chart-card">
+                        <strong>{title}</strong>
+                        <div class="meta">
+                            <code>{source}</code>
+                            {" / "}
+                            {axis}
+                        </div>
+                        <div inner_html=chart_svg></div>
+                        {caption}
+                    </section>
+                }
+            })
+            .collect_view();
+        view! {
+            <section class="chart-list">
+                <h2>"Charts"</h2>
+                <div>{items}</div>
+            </section>
+        }
+        .into_any()
+    } else {
+        ().into_any()
+    };
 
     view! {
         <main class="shell">
@@ -218,11 +732,18 @@ fn PostPage(post: PostView) -> impl IntoView {
                 <div class="eyebrow">"Post Detail"</div>
                 <h1>{post.title.clone()}</h1>
                 <p>{post.summary.clone()}</p>
-                <div class="meta">{post.published_at.clone()}</div>
-                <div class="tags">{tags}</div>
+                <div class="meta-stack">
+                    <div class="meta">{post.published_at.clone()}</div>
+                    {updated_view}
+                </div>
+                <div class="tags">{tags}{toc_tag}{math_tag}</div>
             </section>
             <article class="post">
                 {hero_view}
+                {toc_view}
+                {math_fallback_view}
+                {summary_ai_view}
+                {charts_view}
                 <div class="post-body" inner_html=post.body_html.clone()></div>
                 <a class="nav" href="/">"← Back to posts"</a>
             </article>

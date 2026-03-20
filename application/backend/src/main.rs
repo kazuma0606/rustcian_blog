@@ -35,6 +35,7 @@ async fn main() -> std::io::Result<()> {
         config: config.clone(),
     };
     let bind_address = config.bind_address();
+    let content_root = config.content_root.clone();
     let static_images_dir = config.images_dir();
 
     println!("listening on http://{}", bind_address);
@@ -43,6 +44,7 @@ async fn main() -> std::io::Result<()> {
         App::new()
             .app_data(web::Data::new(app_state.clone()))
             .configure(presentation::routes)
+            .service(Files::new("/assets", content_root.clone()).show_files_listing())
             .service(Files::new("/images", static_images_dir.clone()).show_files_listing())
     })
     .bind(bind_address)?
