@@ -1,0 +1,49 @@
+name: Static Site
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+    inputs:
+      site_ref:
+        description: Git ref to publish. Use a previous commit SHA or tag for rollback.
+        required: false
+        default: main
+      base_url:
+        description: Base URL used for sitemap and RSS generation.
+        required: false
+        default: https://example.com
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-static:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.site_ref || github.ref }}
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+
+      - name: Generate static site
+        env:
+          STORAGE_BACKEND: local
+          STATIC_PUBLISH_BACKEND: local
+          BASE_URL: ${{ github.event.inputs.base_url || 'https://example.com' }}
+        run: cargo run -p rustacian_blog_backend -- publish-static
+
+      - name: Upload static artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: static-site
+          path: dist

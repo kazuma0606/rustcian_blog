@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 360" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360" role="img" aria-labelledby="title desc">
   <title id="title">Stack flow</title>
   <desc id="desc">Actix to Leptos architecture diagram</desc>
   <rect width="640" height="360" fill="#f8f5ef" rx="28" />
