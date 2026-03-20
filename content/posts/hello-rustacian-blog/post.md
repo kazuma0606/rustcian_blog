@@ -1,14 +1,3 @@
----
-title: Hello Rustacian Blog
-slug: hello-rustacian-blog
-published_at: 2026-03-18T09:00:00Z
-tags:
-  - rust
-  - architecture
-summary: 最初のサンプル記事。Rust フルスタック構成の PoC の狙いをまとめる。
-hero_image: /images/ferris-notes.svg
----
-
 # Hello Rustacian Blog
 
 このブログは Rust を中心にしたフルスタック構成の検証用 PoC です。
@@ -22,3 +11,13 @@ hero_image: /images/ferris-notes.svg
 - Azurite を前提にした設定切り替え
 
 今はローカルコンテンツを直接読んでいますが、Repository 境界は Azure 実装へ差し替え可能です。
+
+## 数式表示の確認
+
+インライン数式の例として $e^{i\pi} + 1 = 0$ を置いておきます。
+
+ブロック数式:
+
+$$
+\int_0^1 x^2 \, dx = \frac{1}{3}
+$$
