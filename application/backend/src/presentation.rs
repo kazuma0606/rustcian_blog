@@ -4,10 +4,11 @@ use actix_web::{
 };
 use rustacian_blog_core::{
     AdminAuthError, AiGenerationScope, BlogError, Comment, CommentStatus, ContactMessage, Post,
-    PostSummary, PostVisibility,
+    PostSummary, PostVisibility, SearchQuery,
 };
 use rustacian_blog_frontend::{
-    CommentView, render_comment_list, render_contact_page, render_post_page, render_posts_page,
+    CommentView, SearchResultView, render_comment_list, render_contact_page, render_post_page,
+    render_posts_page, render_search_page,
 };
 use std::{fs, path::Path};
 
@@ -32,7 +33,8 @@ fn public_routes(cfg: &mut web::ServiceConfig) {
         .service(list_post_comments)
         .service(post_comment)
         .service(contact_page)
-        .service(post_contact);
+        .service(post_contact)
+        .service(search_page);
 }
 
 fn admin_routes(cfg: &mut web::ServiceConfig) {
@@ -237,6 +239,22 @@ async fn regenerate_static_site(
     let build = use_case.execute().await.map_err(internal_app_error)?;
     let page_count = build.pages.len();
 
+    // Rebuild the search index from all published posts.
+    {
+        let slugs = data
+            .list_posts
+            .execute()
+            .await
+            .unwrap_or_default();
+        let mut posts = Vec::with_capacity(slugs.len());
+        for s in &slugs {
+            if let Ok(post) = data.get_post.execute(&s.slug).await {
+                posts.push(post);
+            }
+        }
+        let _ = data.search_index.rebuild(&posts);
+    }
+
     let _ = data
         .notification
         .notify(NotificationEvent::StaticSiteRebuilt {
@@ -351,6 +369,35 @@ async fn post_contact(
     Ok(HttpResponse::SeeOther()
         .insert_header(("Location", "/contact?sent=1"))
         .finish())
+}
+
+// ---------------------------------------------------------------------------
+// Search route
+// ---------------------------------------------------------------------------
+
+#[get("/search")]
+async fn search_page(
+    query: web::Query<SearchQuery>,
+    data: web::Data<AppState>,
+) -> HttpResponse {
+    let q = query.q.trim();
+    let results = if q.is_empty() {
+        Vec::new()
+    } else {
+        data.search_index
+            .search(q, 20)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|r| SearchResultView {
+                slug: r.slug,
+                title: r.title,
+                excerpt: r.excerpt,
+                tags: r.tags,
+                date: r.date,
+            })
+            .collect()
+    };
+    html_response(render_search_page(q, results))
 }
 
 // ---------------------------------------------------------------------------
@@ -813,6 +860,7 @@ mod tests {
     use crate::{
         config::AppConfig,
         observability::{AppEvent, ObservabilitySink},
+        search::TantivySearchIndex,
         state::AppState,
     };
     use tempfile::tempdir;
@@ -970,6 +1018,7 @@ mod tests {
             notification: Arc::new(MockNotificationSink),
             comment_repo: Arc::new(MockCommentRepository),
             contact_repo: Arc::new(MockContactRepository),
+            search_index: Arc::new(TantivySearchIndex::new()),
             image_blob: None,
             generate_ai_metadata: None,
             publish_static_site: Some(PublishStaticSiteUseCase::new(
@@ -1577,6 +1626,42 @@ mod tests {
 
         // auth disabled → 501 (admin not configured)
         assert_eq!(response.status(), StatusCode::NOT_IMPLEMENTED);
+    }
+
+    #[actix_web::test]
+    async fn search_page_returns_html_for_empty_query() {
+        let state = app_state(Arc::new(MockRepository {
+            list_result: Ok(Vec::new()),
+            get_result: Ok(sample_post()),
+        }));
+        let app =
+            test::init_service(App::new().app_data(web::Data::new(state)).configure(routes)).await;
+
+        let response =
+            test::call_service(&app, test::TestRequest::get().uri("/search").to_request()).await;
+
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[actix_web::test]
+    async fn search_page_returns_html_for_query_with_no_results() {
+        let state = app_state(Arc::new(MockRepository {
+            list_result: Ok(Vec::new()),
+            get_result: Ok(sample_post()),
+        }));
+        let app =
+            test::init_service(App::new().app_data(web::Data::new(state)).configure(routes)).await;
+
+        let response = test::call_service(
+            &app,
+            test::TestRequest::get().uri("/search?q=rust").to_request(),
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = test::read_body(response).await;
+        let html = String::from_utf8(body.to_vec()).unwrap();
+        assert!(html.contains("検索"));
     }
 
     #[actix_web::test]

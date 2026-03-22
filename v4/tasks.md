@@ -118,32 +118,32 @@
 ### 3.5 Phase 3 — Tantivy 全文検索
 
 #### 3.5.1 Core ドメイン
-- [ ] `application/core/src/domain/search.rs` を新規作成する
-- [ ] `SearchResult` 構造体を定義する（`slug` / `title` / `excerpt` / `tags` / `date`）
-- [ ] `SearchQuery` 構造体を定義する
-- [ ] `domain/mod.rs` に `search` モジュールを追加する
+- [x] `application/core/src/domain/search.rs` を新規作成する
+- [x] `SearchResult` 構造体を定義する（`slug` / `title` / `excerpt` / `tags` / `date`）
+- [x] `SearchQuery` 構造体を定義する
+- [x] `domain/mod.rs` に `search` モジュールを追加する
 
 #### 3.5.2 Backend 実装
-- [ ] `application/backend/Cargo.toml` に `tantivy` を追加する
-- [ ] `application/backend/src/search.rs` を新規作成する
-- [ ] Tantivy インデックススキーマを定義する（`slug` / `title` / `body_text` / `tags` / `date`）
-- [ ] `TantivySearchIndex` を実装する（インメモリインデックス構築・クエリ実行）
-- [ ] HTML タグ除去してプレーンテキスト化する処理を実装する
-- [ ] サーバー起動時に `CONTENT_ROOT` から全 published 記事のインデックスを構築する
-- [ ] `/admin/static/regenerate` 完了後にインデックスを再構築する
+- [x] `application/backend/Cargo.toml` に `tantivy` を追加する
+- [x] `application/backend/src/search.rs` を新規作成する
+- [x] Tantivy インデックススキーマを定義する（`slug` / `title` / `body_text` / `tags` / `date`）
+- [x] `TantivySearchIndex` を実装する（インメモリインデックス構築・クエリ実行）
+- [x] HTML タグ除去してプレーンテキスト化する処理を実装する
+- [x] サーバー起動時に `CONTENT_ROOT` から全 published 記事のインデックスを構築する
+- [x] `/admin/static/regenerate` 完了後にインデックスを再構築する
 
 #### 3.5.3 ルート追加
-- [ ] `GET /search?q=<query>` を実装する（SSR で結果ページを返す）
-- [ ] `presentation.rs` のルート設定に追加する
+- [x] `GET /search?q=<query>` を実装する（SSR で結果ページを返す）
+- [x] `presentation.rs` のルート設定に追加する
 
 #### 3.5.4 Frontend（SSR）
-- [ ] `render_search_page(query: &str, results: Vec<SearchResult>) -> String` を追加する
-- [ ] 検索フォームと結果一覧を warm beige/brown スタイルで実装する（JS なし）
+- [x] `render_search_page(query: &str, results: Vec<SearchResultView>) -> String` を追加する
+- [x] 検索フォームと結果一覧を warm beige/brown スタイルで実装する（JS なし）
 
 #### 3.5.5 テスト
-- [ ] インデックス構築後にクエリが正しい結果を返すことを確認するテストを追加する
-- [ ] クエリヒットなし時の挙動テストを追加する
-- [ ] draft 記事がインデックスに含まれないことを確認するテストを追加する
+- [x] インデックス構築後にクエリが正しい結果を返すことを確認するテストを追加する
+- [x] クエリヒットなし時の挙動テストを追加する
+- [x] draft 記事がインデックスに含まれないことを確認するテストを追加する
 
 ---
 

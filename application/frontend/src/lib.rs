@@ -2,6 +2,15 @@ use leptos::prelude::*;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SearchResultView {
+    pub slug: String,
+    pub title: String,
+    pub excerpt: String,
+    pub tags: Vec<String>,
+    pub date: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CommentView {
     pub id: String,
     pub author_name: String,
@@ -181,6 +190,78 @@ pub fn render_contact_page() -> String {
 </div>
 </div>"#;
     wrap_document("お問い合わせ", body, false, false)
+}
+
+pub fn render_search_page(query: &str, results: Vec<SearchResultView>) -> String {
+    let query_escaped = esc(query);
+    let results_html = if query.is_empty() {
+        String::new()
+    } else if results.is_empty() {
+        format!(
+            "<p style=\"color:var(--muted);font-size:15px;\">「{}」に一致する記事は見つかりませんでした。</p>",
+            query_escaped
+        )
+    } else {
+        results
+            .iter()
+            .map(|r| {
+                let tags = r
+                    .tags
+                    .iter()
+                    .map(|t| {
+                        format!(
+                            "<span class=\"tag\" style=\"font-size:12px;padding:3px 10px;\">{}</span>",
+                            esc(t)
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                format!(
+                    r#"<a href="/p/{slug}" class="card" style="text-decoration:none;color:inherit;">
+  <div style="font-size:13px;color:var(--muted);">{date}</div>
+  <div style="font-size:18px;font-weight:600;">{title}</div>
+  <div style="font-size:14px;color:var(--muted);line-height:1.6;">{excerpt}</div>
+  <div class="tags" style="margin-top:6px;">{tags}</div>
+</a>"#,
+                    slug = esc(&r.slug),
+                    date = esc(&r.date),
+                    title = esc(&r.title),
+                    excerpt = esc(&r.excerpt),
+                    tags = tags,
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+
+    let count_line = if !query.is_empty() && !results.is_empty() {
+        format!(
+            "<p style=\"color:var(--muted);font-size:14px;\">{} 件の検索結果</p>",
+            results.len()
+        )
+    } else {
+        String::new()
+    };
+
+    let body = format!(
+        r#"<div class="shell">
+<div style="max-width:720px;margin:0 auto;">
+  <p class="eyebrow" style="text-transform:uppercase;letter-spacing:0.12em;color:var(--accent);font-size:12px;">Search</p>
+  <h1 style="margin-top:4px;margin-bottom:20px;">記事を検索</h1>
+  <form method="get" action="/search" style="display:flex;gap:10px;margin-bottom:24px;">
+    <input name="q" value="{query_escaped}" placeholder="キーワードを入力…" autofocus
+      style="flex:1;padding:10px 14px;border:1px solid var(--line);border-radius:10px;background:var(--bg);font-family:inherit;font-size:15px;color:var(--text);">
+    <button type="submit"
+      style="padding:10px 22px;background:var(--accent);color:#fff;border:none;border-radius:10px;cursor:pointer;font-family:inherit;font-size:15px;">
+      検索
+    </button>
+  </form>
+  {count_line}
+  <div class="posts">{results_html}</div>
+</div>
+</div>"#
+    );
+    wrap_document("検索", &body, false, false)
 }
 
 fn esc(s: &str) -> String {
