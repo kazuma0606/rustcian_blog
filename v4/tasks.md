@@ -168,40 +168,41 @@
 ### 3.7 Phase 5 — Terraform IaC
 
 #### 3.7.1 ディレクトリ・共通設定
-- [ ] `terraform/` ディレクトリを作成する
-- [ ] `terraform/main.tf` を作成する（`azurerm` provider・`terraform` ブロック）
-- [ ] `terraform/variables.tf` を作成する（環境・リージョン・プレフィックス等）
-- [ ] `terraform/outputs.tf` を作成する（主要リソースの endpoint / ID 出力）
-- [ ] `terraform/.gitignore` を作成する（`*.tfstate` / `.terraform/` 等）
+- [x] `terraform/` ディレクトリを作成する
+- [x] `terraform/main.tf` を作成する（`azurerm` provider・`terraform` ブロック・モジュール呼び出し・RBAC role assignments）
+- [x] `terraform/variables.tf` を作成する（環境・リージョン・プレフィックス・コンテナイメージ等）
+- [x] `terraform/outputs.tf` を作成する（主要リソースの endpoint / ID 出力）
+- [x] `terraform/.gitignore` を作成する（`*.tfstate` / `.terraform/` 等）
 
 #### 3.7.2 modules/storage
-- [ ] `azurerm_storage_account` を定義する
-- [ ] Table（コメント・お問い合わせ用）を定義する
-  - ※ 静的アセット用 Blob コンテナは v3.5 により不要（削除）
+- [x] `azurerm_storage_account` を定義する（Standard LRS）
+- [x] Table（コメント・お問い合わせ用）を定義する（`comments` / `contacts`）
+  - ※ 静的アセット用 Blob コンテナは v3.5 により不要
 
 #### 3.7.3 modules/app
-- [ ] `azurerm_service_plan` を定義する
-- [ ] `azurerm_linux_web_app` を定義する（backend コンテナ）
-- [ ] App Settings（環境変数）を Key Vault 参照で定義する
+- [x] `azurerm_service_plan` を定義する（Linux、B1/P1v3 変数）
+- [x] `azurerm_linux_web_app` を定義する（Docker コンテナ、SystemAssigned managed identity）
+- [x] App Settings（環境変数）を Key Vault 参照で定義する（@Microsoft.KeyVault(...)）
 
 #### 3.7.4 modules/monitoring
-- [ ] `azurerm_log_analytics_workspace` を定義する
-- [ ] `azurerm_application_insights` を定義する
+- [x] `azurerm_log_analytics_workspace` を定義する
+- [x] `azurerm_application_insights` を定義する
 
 #### 3.7.5 modules/keyvault
-- [ ] `azurerm_key_vault` を定義する
-- [ ] シークレット参照の変数・出力を定義する（`SLACK_WEBHOOK_URL` 等）
+- [x] `azurerm_key_vault` を定義する（RBAC 認可、soft-delete 7日）
+- [x] シークレット参照の変数・出力を定義する（AppInsights CS / Slack / OpenAI API key / storage key）
+  - AppInsights CS は Terraform が自動投入、他は lifecycle ignore_changes でポータル設定保持
 
 #### 3.7.6 modules/openai
-- [ ] `azurerm_cognitive_account` を定義する（Azure OpenAI）
-- [ ] モデルデプロイメント定義を追加する
+- [x] `azurerm_cognitive_account` を定義する（Azure OpenAI）
+- [x] モデルデプロイメント定義を追加する（gpt-4o-mini Standard 10K TPM）
 
 #### 3.7.7 modules/comms
-- [ ] `azurerm_communication_service` を定義する（将来の Email 通知用、disabled 状態で用意）
+- [x] `azurerm_communication_service` を定義する（将来の Email 通知用、作成のみ）
 
 #### 3.7.8 ドキュメント
-- [ ] `terraform/README.md` に初期化・plan・apply 手順を記載する
-- [ ] `v4/azure-boundaries.md` に v4 での Azure リソース境界を記載する
+- [x] `terraform/README.md` に初期化・plan・apply 手順を記載する
+- [x] `v4/azure-boundaries.md` に v4 での Azure リソース境界・既知制限を記載する
 
 ---
 
