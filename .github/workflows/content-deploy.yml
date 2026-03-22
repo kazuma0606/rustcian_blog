@@ -37,6 +37,9 @@ jobs:
       - name: Log in to ACR
         run: az acr login --name ${{ secrets.ACR_NAME }}
 
+      - name: Debug — list workspace files
+        run: ls -la && echo "---" && ls -la content/ | head -5
+
       - name: Build and push image to ACR
         uses: docker/build-push-action@v6
         with:
