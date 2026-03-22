@@ -10,10 +10,10 @@ use rustacian_blog_core::{
     PostSummary, PostVisibility, SearchQuery,
 };
 use rustacian_blog_frontend::{
-    CommentView, GeneratedMetadataView, SearchResultView, render_admin_comments,
-    render_admin_dashboard, render_admin_post_detail, render_admin_static_panel,
-    render_comment_list, render_contact_page, render_post_page, render_posts_page,
-    render_search_page,
+    CommentView, GeneratedMetadataView, ImageView, SearchResultView, render_admin_comments,
+    render_admin_dashboard, render_admin_image_gallery, render_admin_post_detail,
+    render_admin_static_panel, render_comment_list, render_contact_page, render_post_page,
+    render_posts_page, render_search_page,
 };
 use std::{fs, path::Path};
 
@@ -52,6 +52,7 @@ fn admin_routes(cfg: &mut web::ServiceConfig) {
         .service(admin_comments)
         .service(approve_comment)
         .service(reject_comment)
+        .service(admin_image_gallery)
         .service(admin_list_images)
         .service(admin_upload_image)
         .service(admin_delete_image)
@@ -696,6 +697,40 @@ fn page_app_error(error: BlogError) -> actix_web::Error {
 // ---------------------------------------------------------------------------
 
 #[get("/images")]
+async fn admin_image_gallery(
+    request: HttpRequest,
+    data: web::Data<AppState>,
+) -> Result<HttpResponse> {
+    authenticate_admin(&request, &data, "admin_image_gallery")
+        .await
+        .map_err(admin_auth_error)?;
+    let images = if let Some(blob) = data.image_blob.as_ref() {
+        blob.list_blobs("images/")
+            .await
+            .map_err(|e| actix_web::error::ErrorInternalServerError(e.to_string()))?
+            .into_iter()
+            .map(|item| {
+                let name = item
+                    .name
+                    .strip_prefix("images/")
+                    .unwrap_or(&item.name)
+                    .to_owned();
+                ImageView {
+                    url: format!("/images/{name}"),
+                    name,
+                    content_type: item.content_type,
+                    last_modified: item.last_modified,
+                    size: item.size,
+                }
+            })
+            .collect()
+    } else {
+        vec![]
+    };
+    Ok(html_response(render_admin_image_gallery(images)))
+}
+
+#[get("/images/list")]
 async fn admin_list_images(
     request: HttpRequest,
     data: web::Data<AppState>,

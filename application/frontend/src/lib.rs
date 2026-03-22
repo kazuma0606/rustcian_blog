@@ -72,6 +72,15 @@ pub struct PostSummaryView {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImageView {
+    pub name: String,
+    pub url: String,
+    pub content_type: Option<String>,
+    pub last_modified: Option<String>,
+    pub size: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TagLinkView {
     pub tag: String,
     pub href: String,
@@ -328,6 +337,7 @@ fn admin_nav() -> &'static str {
     r#"<nav>
   <a href="/admin">ダッシュボード</a>
   <a href="/admin/comments">コメント</a>
+  <a href="/admin/images">画像</a>
   <a href="/admin/static">静的サイト</a>
 </nav>"#
 }
@@ -544,6 +554,91 @@ pub fn render_admin_static_panel() -> String {
         nav = admin_nav(),
     );
     admin_document("静的サイト管理", &body)
+}
+
+pub fn render_admin_image_gallery(images: Vec<ImageView>) -> String {
+    let cards: String = images
+        .iter()
+        .map(|img| {
+            let name = esc(&img.name);
+            let url = esc(&img.url);
+            let size_label = img
+                .size
+                .map(|b| {
+                    if b >= 1024 * 1024 {
+                        format!("{:.1} MB", b as f64 / (1024.0 * 1024.0))
+                    } else {
+                        format!("{} KB", b / 1024)
+                    }
+                })
+                .unwrap_or_default();
+            format!(
+                r#"<div class="card" style="padding:12px;display:flex;flex-direction:column;gap:8px;">
+  <img src="{url}" alt="{name}" style="width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:4px;background:var(--muted);">
+  <div style="font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{name}">{name}</div>
+  <div style="font-size:11px;color:var(--muted);">{size_label}</div>
+  <div style="display:flex;gap:6px;flex-wrap:wrap;">
+    <button class="btn btn-outline" style="font-size:12px;" onclick="copyUrl('{url}')">URL コピー</button>
+    <button class="btn btn-outline" style="font-size:12px;color:#c0392b;" onclick="deleteImage('{name}')">削除</button>
+  </div>
+</div>"#,
+            )
+        })
+        .collect();
+
+    let empty = if images.is_empty() {
+        r#"<p style="color:var(--muted);">画像がまだアップロードされていません。</p>"#
+    } else {
+        ""
+    };
+
+    let body = format!(
+        r#"<div class="shell">
+<p class="eyebrow">Admin</p>
+<h1 style="margin:4px 0 20px;">画像管理</h1>
+{nav}
+<div class="card" style="margin-bottom:24px;">
+  <h2 style="margin-top:0;">画像をアップロード</h2>
+  <form id="upload-form" enctype="multipart/form-data">
+    <input type="file" name="file" accept="image/*" required style="margin-bottom:12px;display:block;">
+    <button type="submit" class="btn btn-primary">アップロード</button>
+  </form>
+  <div id="upload-msg" style="margin-top:8px;font-size:13px;"></div>
+</div>
+<h2>アップロード済み画像 ({count} 件)</h2>
+{empty}
+<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:16px;margin-top:16px;">
+{cards}
+</div>
+<script>
+document.getElementById('upload-form').addEventListener('submit', async (e) => {{
+  e.preventDefault();
+  const msg = document.getElementById('upload-msg');
+  const fd = new FormData(e.target);
+  msg.textContent = 'アップロード中...';
+  try {{
+    const r = await fetch('/admin/images', {{ method: 'POST', body: fd }});
+    if (r.ok) {{ msg.textContent = 'アップロード完了。ページを更新してください。'; }}
+    else {{ msg.textContent = 'エラー: ' + r.status; }}
+  }} catch(err) {{ msg.textContent = 'エラー: ' + err; }}
+}});
+function copyUrl(url) {{
+  navigator.clipboard.writeText(location.origin + url).then(() => alert('コピーしました: ' + url));
+}}
+async function deleteImage(name) {{
+  if (!confirm(name + ' を削除しますか？')) return;
+  const r = await fetch('/admin/images/' + encodeURIComponent(name), {{ method: 'DELETE' }});
+  if (r.ok) {{ location.reload(); }}
+  else {{ alert('削除に失敗しました: ' + r.status); }}
+}}
+</script>
+</div>"#,
+        nav = admin_nav(),
+        count = images.len(),
+        empty = empty,
+        cards = cards,
+    );
+    admin_document("画像管理", &body)
 }
 
 fn esc(s: &str) -> String {
