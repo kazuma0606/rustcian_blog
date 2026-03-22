@@ -44,6 +44,13 @@ Run the backend:
 cargo run -p rustacian_blog_backend
 ```
 
+To open the minimal admin page without Entra setup during local development:
+
+```powershell
+$env:ADMIN_AUTH_MODE="local-dev"
+cargo run -p rustacian_blog_backend
+```
+
 Open:
 - `http://127.0.0.1:8080/`
 - `http://127.0.0.1:8080/p/hello-rustacian-blog`

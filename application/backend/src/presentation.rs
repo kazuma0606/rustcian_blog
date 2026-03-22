@@ -233,6 +233,19 @@ async fn authenticate_admin(
     data: &web::Data<AppState>,
     route: &'static str,
 ) -> Result<rustacian_blog_core::AdminIdentity, AdminAuthError> {
+    if data.config.admin_auth_mode == "local-dev" {
+        let identity = rustacian_blog_core::AdminIdentity {
+            oid: Some("local-dev".to_owned()),
+            preferred_username: Some("local-dev".to_owned()),
+            groups: vec!["local-dev".to_owned()],
+        };
+        data.observability.emit(AppEvent::AdminAuthChecked {
+            route,
+            outcome: "local_dev",
+        });
+        return Ok(identity);
+    }
+
     if data.config.admin_auth_mode == "disabled" {
         data.observability.emit(AppEvent::AdminAuthChecked {
             route,
@@ -712,6 +725,12 @@ mod tests {
         state
     }
 
+    fn app_state_with_local_dev_auth(repository: Arc<dyn PostRepository>) -> AppState {
+        let mut state = app_state(repository);
+        state.config.admin_auth_mode = "local-dev".to_owned();
+        state
+    }
+
     fn app_state_with_admin_auth_and_ai(repository: Arc<dyn PostRepository>) -> AppState {
         let mut state = app_state_with_admin_auth(repository.clone());
         state.generate_ai_metadata = Some(GenerateAiMetadataUseCase::new(
@@ -898,6 +917,22 @@ mod tests {
                 .to_request(),
         )
         .await;
+
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[actix_web::test]
+    async fn admin_home_renders_without_token_in_local_dev_mode() {
+        let state = app_state_with_local_dev_auth(Arc::new(MockRepository {
+            list_result: Ok(vec![sample_post().summary()]),
+            get_result: Ok(sample_post()),
+        }));
+
+        let app =
+            test::init_service(App::new().app_data(web::Data::new(state)).configure(routes)).await;
+
+        let response =
+            test::call_service(&app, test::TestRequest::get().uri("/admin").to_request()).await;
 
         assert_eq!(response.status(), StatusCode::OK);
     }
