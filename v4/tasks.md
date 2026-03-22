@@ -25,7 +25,7 @@
 
 ### 3.2 事前整理（v3.5 対応）
 
-- [ ] `dist/` を main repo から削除して `.gitignore` に追加する
+- [x] `dist/` を main repo から削除して `.gitignore` に追加する
   - v3.5 以降 main repo では生成しないため不要
 - [ ] Dependabot PR #10（jsonwebtoken）をクローズする（v3.0_dev で取り込み済み）
 
