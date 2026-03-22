@@ -8,8 +8,8 @@ use rustacian_blog_core::{
 use rustacian_blog_core::{CommentRepository, ContactRepository, NotificationSink};
 
 use crate::{
-    analytics_writer::AnalyticsWriter, blob::AzuriteBlobAdapter, config::AppConfig,
-    observability::ObservabilitySink, search::TantivySearchIndex,
+    analytics_writer::AnalyticsWriter, blob::AzuriteBlobAdapter, cloudflare::CloudflareCacheClient,
+    config::AppConfig, observability::ObservabilitySink, search::TantivySearchIndex,
 };
 use reqwest::Client;
 
@@ -27,6 +27,7 @@ pub struct AppState {
     pub search_index: Arc<TantivySearchIndex>,
     pub image_blob: Option<AzuriteBlobAdapter>,
     pub analytics: Option<Arc<AnalyticsWriter>>,
+    pub cloudflare: Option<CloudflareCacheClient>,
     pub http_client: Client,
     pub config: AppConfig,
 }

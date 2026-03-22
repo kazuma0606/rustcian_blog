@@ -484,6 +484,8 @@ GcZ0izY/30012ajdHY+/QK5lsMoxTnn0skdS+spLxaS5ZEO4qvPVb8RAoCkWMMal
             entra_admin_group_id: Some("group-123".to_owned()),
             entra_admin_user_oid: None,
             entra_redirect_uri: Some("http://localhost:8080/admin/callback".to_owned()),
+            cloudflare_zone_id: None,
+            cloudflare_api_token: None,
             static_output_dir: "./dist".into(),
             static_publish_backend: "local".to_owned(),
             static_publish_prefix: "site".to_owned(),

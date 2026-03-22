@@ -46,16 +46,16 @@
 
 ### Cloudflare キャッシュパージ (#1)
 > Azure CDN は不使用。`rustacian-blog.com` は Cloudflare 取得済み。Terraform モジュール不要。
-- [ ] **4-1** `application/backend/src/config.rs` — `cloudflare_zone_id`, `cloudflare_api_token` を追加
-- [ ] **4-2** `application/backend/src/` — `cloudflare.rs` を新規作成（`CloudflareCacheClient::purge_all()` 実装）
-- [ ] **4-3** `application/backend/src/static_site.rs` — publish 完了後に Cloudflare キャッシュパージを呼び出す（設定がある場合のみ）
-- [ ] **4-4** `.env.local.example` に `CLOUDFLARE_ZONE_ID`, `CLOUDFLARE_API_TOKEN` を追記
+- [x] **4-1** `application/backend/src/config.rs` — `cloudflare_zone_id`, `cloudflare_api_token` を追加
+- [x] **4-2** `application/backend/src/` — `cloudflare.rs` を新規作成（`CloudflareCacheClient::purge_all()` 実装）
+- [x] **4-3** `application/backend/src/presentation.rs` — publish 完了後に Cloudflare キャッシュパージを呼び出す（設定がある場合のみ）
+- [x] **4-4** `.env.local.example` に `CLOUDFLARE_ZONE_ID`, `CLOUDFLARE_API_TOKEN` を追記
 
 ### Monitor Alerts (#6)
-- [ ] **4-9** `terraform/modules/monitoring/main.tf` — `azurerm_monitor_action_group`（Slack webhook 宛）を追加
-- [ ] **4-10** `terraform/modules/monitoring/main.tf` — `azurerm_monitor_metric_alert` を追加（`ContentError` 閾値超過で通知）
-- [ ] **4-11** `terraform/modules/monitoring/variables.tf` — Slack webhook URL 変数を追加
-- [ ] **4-12** `terraform/main.tf` — monitoring モジュールに Slack webhook URL を渡す
+- [x] **4-9** `terraform/modules/monitoring/main.tf` — `azurerm_monitor_action_group`（Slack webhook 宛）を追加
+- [x] **4-10** `terraform/modules/monitoring/main.tf` — `azurerm_monitor_metric_alert` を追加（`ContentError` 閾値超過で通知）
+- [x] **4-11** `terraform/modules/monitoring/variables.tf` — Slack webhook URL 変数を追加
+- [x] **4-12** `terraform/main.tf` — monitoring モジュールに Slack webhook URL を渡す
 
 ---
 

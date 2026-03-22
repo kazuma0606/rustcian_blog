@@ -33,6 +33,8 @@ pub struct AppConfig {
     pub application_insights_connection_string: Option<String>,
     pub base_url: String,
     pub slack_webhook_url: Option<String>,
+    pub cloudflare_zone_id: Option<String>,
+    pub cloudflare_api_token: Option<String>,
 }
 
 impl AppConfig {
@@ -102,6 +104,8 @@ impl AppConfig {
                 .trim_end_matches('/')
                 .to_owned(),
             slack_webhook_url: env::var("SLACK_WEBHOOK_URL").ok(),
+            cloudflare_zone_id: env::var("CLOUDFLARE_ZONE_ID").ok(),
+            cloudflare_api_token: env::var("CLOUDFLARE_API_TOKEN").ok(),
         })
     }
 

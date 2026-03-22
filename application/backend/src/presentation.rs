@@ -319,10 +319,24 @@ async fn regenerate_static_site(
         })
         .await;
 
+    // Purge Cloudflare cache after successful publish (best-effort)
+    let cf_purged = if let Some(ref cf) = data.cloudflare {
+        match cf.purge_all().await {
+            Ok(()) => true,
+            Err(e) => {
+                eprintln!("cloudflare purge failed: {e}");
+                false
+            }
+        }
+    } else {
+        false
+    };
+
     Ok(HttpResponse::Ok().json(serde_json::json!({
         "status": "ok",
         "pages": page_count,
         "assets": build.assets.len(),
+        "cloudflare_purged": cf_purged,
         "target": match data.config.static_publish_backend.as_str() {
             "azurite" => format!("azurite:{}", data.config.static_publish_prefix),
             _ => format!("local:{}", data.config.static_output_dir.display()),
@@ -1294,6 +1308,7 @@ mod tests {
             search_index: Arc::new(TantivySearchIndex::new()),
             image_blob: None,
             analytics: None,
+            cloudflare: None,
             http_client: reqwest::Client::new(),
             generate_ai_metadata: None,
             publish_static_site: Some(PublishStaticSiteUseCase::new(
@@ -1320,6 +1335,8 @@ mod tests {
                 entra_admin_group_id: None,
                 entra_admin_user_oid: None,
                 entra_redirect_uri: None,
+                cloudflare_zone_id: None,
+                cloudflare_api_token: None,
                 static_output_dir: "./dist".into(),
                 static_publish_backend: "local".to_owned(),
                 static_publish_prefix: "site".to_owned(),

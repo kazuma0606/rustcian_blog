@@ -68,6 +68,26 @@ variable "entra_redirect_uri" {
   default     = ""
 }
 
+variable "slack_webhook_url" {
+  description = "Slack incoming webhook URL for monitor alerts. Leave empty to disable."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "cloudflare_zone_id" {
+  description = "Cloudflare zone ID for rustacian-blog.com (used to purge cache after publish)."
+  type        = string
+  default     = ""
+}
+
+variable "cloudflare_api_token" {
+  description = "Cloudflare API token with Cache Purge permission."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
 variable "openai_model_capacity" {
   description = "Token-per-minute capacity (thousands) for the OpenAI deployment."
   type        = number
