@@ -1,0 +1,7 @@
+[advisories]
+# RUSTSEC-2023-0071: Timing side-channel in rsa crate (RSA decryption).
+# Pulled in transitively via jsonwebtoken 10.x (rust_crypto feature) -> rsa 0.9.x.
+# No upstream fix is available as of 2026-03-22. The attack requires an adversary
+# capable of making precise timing measurements of many RSA operations against our
+# server; risk is accepted pending a fixed release of the rsa crate.
+ignore = ["RUSTSEC-2023-0071"]
