@@ -15,14 +15,14 @@
 
 ## Phase 2: 画像アップロード UI（#7）
 
-- [ ] **2-1** `application/backend/src/blob.rs` — `put_bytes(name, bytes, content_type)` を実装
-- [ ] **2-2** `application/backend/src/blob.rs` — `list_blobs(prefix)` を実装（Blob Service REST `?comp=list`）
-- [ ] **2-3** `application/backend/src/presentation.rs` — `POST /admin/images` ルートを追加（multipart 受け取り → Blob 保存）
-- [ ] **2-4** `application/backend/src/presentation.rs` — `GET /admin/images` ルートを追加（JSON 一覧）
-- [ ] **2-5** `application/backend/src/presentation.rs` — `DELETE /admin/images/{name}` ルートを追加
-- [ ] **2-6** `application/backend/src/presentation.rs` — `POST /admin/posts/{slug}/hero` ルートを追加（meta.yml の `hero_image` を更新）
+- [x] **2-1** `application/backend/src/blob.rs` — `put_bytes(name, bytes, content_type)` を実装
+- [x] **2-2** `application/backend/src/blob.rs` — `list_blobs(prefix)` を実装（Blob Service REST `?comp=list`）
+- [x] **2-3** `application/backend/src/presentation.rs` — `POST /admin/images` ルートを追加（multipart 受け取り → Blob 保存）
+- [x] **2-4** `application/backend/src/presentation.rs` — `GET /admin/images` ルートを追加（JSON 一覧）
+- [x] **2-5** `application/backend/src/presentation.rs` — `DELETE /admin/images/{name}` ルートを追加
+- [x] **2-6** `application/backend/src/presentation.rs` — `POST /admin/posts/{slug}/hero` ルートを追加（meta.yml の `hero_image` を更新）
 - [ ] **2-7** `application/frontend/src/lib.rs` — `render_admin_image_gallery(images: Vec<ImageView>)` を追加
-- [ ] **2-8** `application/backend/src/state.rs` — `image_blob` が `None` のときに Admin 画像 API が 503 を返すようにする
+- [x] **2-8** `application/backend/src/state.rs` — `image_blob` が `None` のときに Admin 画像 API が 503 を返すようにする（各ハンドラで実装済み）
 - [ ] **2-9** ユニットテスト追加（`list_blobs`、`put_bytes`）、CI グリーンを確認
 
 ---
