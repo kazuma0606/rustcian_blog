@@ -35,61 +35,45 @@ async fn health() -> impl Responder {
 }
 
 #[get("/api/popular")]
-async fn popular(
-    store: web::Data<AnalyticsStore>,
-    query: web::Query<DaysQuery>,
-) -> impl Responder {
+async fn popular(store: web::Data<AnalyticsStore>, query: web::Query<DaysQuery>) -> impl Responder {
     match store.popular(query.days, query.limit).await {
         Ok(stats) => HttpResponse::Ok().json(stats),
         Err(e) => {
             eprintln!("popular error: {e}");
-            HttpResponse::InternalServerError()
-                .json(serde_json::json!({"error": e}))
+            HttpResponse::InternalServerError().json(serde_json::json!({"error": e}))
         }
     }
 }
 
 #[get("/api/summary")]
-async fn summary(
-    store: web::Data<AnalyticsStore>,
-    query: web::Query<DaysQuery>,
-) -> impl Responder {
+async fn summary(store: web::Data<AnalyticsStore>, query: web::Query<DaysQuery>) -> impl Responder {
     match store.summary(query.days).await {
         Ok(s) => HttpResponse::Ok().json(s),
         Err(e) => {
             eprintln!("summary error: {e}");
-            HttpResponse::InternalServerError()
-                .json(serde_json::json!({"error": e}))
+            HttpResponse::InternalServerError().json(serde_json::json!({"error": e}))
         }
     }
 }
 
 #[get("/api/gaps")]
-async fn gaps(
-    store: web::Data<AnalyticsStore>,
-    query: web::Query<DaysQuery>,
-) -> impl Responder {
+async fn gaps(store: web::Data<AnalyticsStore>, query: web::Query<DaysQuery>) -> impl Responder {
     match store.gaps(query.days).await {
         Ok(g) => HttpResponse::Ok().json(g),
         Err(e) => {
             eprintln!("gaps error: {e}");
-            HttpResponse::InternalServerError()
-                .json(serde_json::json!({"error": e}))
+            HttpResponse::InternalServerError().json(serde_json::json!({"error": e}))
         }
     }
 }
 
 #[get("/api/coread/{slug}")]
-async fn coread(
-    store: web::Data<AnalyticsStore>,
-    slug: web::Path<String>,
-) -> impl Responder {
+async fn coread(store: web::Data<AnalyticsStore>, slug: web::Path<String>) -> impl Responder {
     match store.coread(&slug).await {
         Ok(entries) => HttpResponse::Ok().json(entries),
         Err(e) => {
             eprintln!("coread error: {e}");
-            HttpResponse::InternalServerError()
-                .json(serde_json::json!({"error": e}))
+            HttpResponse::InternalServerError().json(serde_json::json!({"error": e}))
         }
     }
 }

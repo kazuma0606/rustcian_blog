@@ -203,7 +203,10 @@ fn build_auth(
 /// e.g. `"http://127.0.0.1:10002/devstoreaccount1"` → `"/devstoreaccount1"`
 fn extract_endpoint_path(endpoint: &str) -> &str {
     // Strip scheme + authority (everything up to the third `/`)
-    if let Some(after_scheme) = endpoint.strip_prefix("http://").or_else(|| endpoint.strip_prefix("https://")) {
+    if let Some(after_scheme) = endpoint
+        .strip_prefix("http://")
+        .or_else(|| endpoint.strip_prefix("https://"))
+    {
         if let Some(slash) = after_scheme.find('/') {
             return &after_scheme[slash..];
         }

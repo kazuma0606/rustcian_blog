@@ -2,10 +2,7 @@ use std::sync::Arc;
 
 use actix_web::{App, HttpServer, web};
 use rustacian_blog_analytics::{
-    config::AnalyticsConfig,
-    presentation,
-    store::AnalyticsStore,
-    table::TableClient,
+    config::AnalyticsConfig, presentation, store::AnalyticsStore, table::TableClient,
 };
 
 #[actix_web::main]

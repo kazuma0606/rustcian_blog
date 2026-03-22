@@ -8,11 +8,8 @@ use rustacian_blog_core::{
 use rustacian_blog_core::{CommentRepository, ContactRepository, NotificationSink};
 
 use crate::{
-    analytics_writer::AnalyticsWriter,
-    blob::AzuriteBlobAdapter,
-    config::AppConfig,
-    observability::ObservabilitySink,
-    search::TantivySearchIndex,
+    analytics_writer::AnalyticsWriter, blob::AzuriteBlobAdapter, config::AppConfig,
+    observability::ObservabilitySink, search::TantivySearchIndex,
 };
 
 #[derive(Clone)]

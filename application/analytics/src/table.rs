@@ -20,12 +20,18 @@ impl TableClient {
     pub fn new(table_endpoint: impl Into<String>) -> Self {
         let endpoint = table_endpoint.into().trim_end_matches('/').to_owned();
         let endpoint_path = extract_endpoint_path(&endpoint).to_owned();
-        Self { client: Client::new(), endpoint, endpoint_path }
+        Self {
+            client: Client::new(),
+            endpoint,
+            endpoint_path,
+        }
     }
 
     pub async fn create_table_if_needed(&self, table_name: &str) -> Result<(), String> {
         let body = serde_json::json!({ "TableName": table_name });
-        let resp = self.request(Method::POST, "/Tables", Some(body), None).await?;
+        let resp = self
+            .request(Method::POST, "/Tables", Some(body), None)
+            .await?;
         match resp.status() {
             StatusCode::CREATED | StatusCode::CONFLICT => Ok(()),
             s => Err(format!("create_table {table_name}: {s}")),
@@ -38,7 +44,9 @@ impl TableClient {
         entity: &serde_json::Value,
     ) -> Result<(), String> {
         let path = format!("/{table_name}");
-        let resp = self.request(Method::POST, &path, Some(entity.clone()), None).await?;
+        let resp = self
+            .request(Method::POST, &path, Some(entity.clone()), None)
+            .await?;
         match resp.status() {
             StatusCode::CREATED | StatusCode::NO_CONTENT => Ok(()),
             s => {
@@ -80,8 +88,7 @@ impl TableClient {
             let body = resp.text().await.unwrap_or_default();
             return Err(format!("query_entities: {s}: {body}"));
         }
-        let json: serde_json::Value =
-            resp.json().await.map_err(|e| e.to_string())?;
+        let json: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
         Ok(json["value"].as_array().cloned().unwrap_or_default())
     }
 
@@ -111,8 +118,7 @@ impl TableClient {
             builder = builder.header("If-Match", etag);
         }
         if let Some(json) = body {
-            let bytes =
-                serde_json::to_vec(&json).map_err(|e| e.to_string())?;
+            let bytes = serde_json::to_vec(&json).map_err(|e| e.to_string())?;
             builder = builder.body(bytes);
         }
         builder.send().await.map_err(|e| e.to_string())
@@ -129,11 +135,11 @@ fn build_auth(
     date: &str,
     canonicalized_resource: &str,
 ) -> Result<String, String> {
-    let string_to_sign =
-        format!("{verb}\n\n{content_type}\n{date}\n{canonicalized_resource}");
-    let key = STANDARD.decode(AZURITE_ACCOUNT_KEY).map_err(|e| e.to_string())?;
-    let mut mac =
-        Hmac::<Sha256>::new_from_slice(&key).map_err(|e| e.to_string())?;
+    let string_to_sign = format!("{verb}\n\n{content_type}\n{date}\n{canonicalized_resource}");
+    let key = STANDARD
+        .decode(AZURITE_ACCOUNT_KEY)
+        .map_err(|e| e.to_string())?;
+    let mut mac = Hmac::<Sha256>::new_from_slice(&key).map_err(|e| e.to_string())?;
     mac.update(string_to_sign.as_bytes());
     let sig = STANDARD.encode(mac.finalize().into_bytes());
     Ok(format!("SharedKey {AZURITE_ACCOUNT}:{sig}"))

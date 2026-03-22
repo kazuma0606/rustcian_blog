@@ -92,7 +92,10 @@ impl AnalyticsStore {
         let filter = date_filter(&dates);
 
         let pv_rows = self.client.query_entities(TABLE_PV, Some(&filter)).await?;
-        let q_rows = self.client.query_entities(TABLE_QUERIES, Some(&filter)).await?;
+        let q_rows = self
+            .client
+            .query_entities(TABLE_QUERIES, Some(&filter))
+            .await?;
 
         let zero_hit = q_rows
             .iter()
@@ -111,7 +114,10 @@ impl AnalyticsStore {
     pub async fn gaps(&self, days: u32) -> Result<Vec<SearchGap>, String> {
         let dates = date_range(days);
         let filter = date_filter(&dates);
-        let rows = self.client.query_entities(TABLE_QUERIES, Some(&filter)).await?;
+        let rows = self
+            .client
+            .query_entities(TABLE_QUERIES, Some(&filter))
+            .await?;
 
         let mut counts: HashMap<String, usize> = HashMap::new();
         for row in &rows {

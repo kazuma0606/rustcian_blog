@@ -629,11 +629,7 @@ fn peer_ip(request: &HttpRequest) -> String {
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.split(',').next())
         .map(|s| s.trim().to_owned())
-        .or_else(|| {
-            request
-                .peer_addr()
-                .map(|addr| addr.ip().to_string())
-        })
+        .or_else(|| request.peer_addr().map(|addr| addr.ip().to_string()))
         .unwrap_or_else(|| "unknown".to_owned())
 }
 
