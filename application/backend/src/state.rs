@@ -5,6 +5,8 @@ use rustacian_blog_core::{
     PublishStaticSiteUseCase,
 };
 
+use rustacian_blog_core::NotificationSink;
+
 use crate::{blob::AzuriteBlobAdapter, config::AppConfig, observability::ObservabilitySink};
 
 #[derive(Clone)]
@@ -15,6 +17,7 @@ pub struct AppState {
     pub publish_static_site: Option<PublishStaticSiteUseCase>,
     pub admin_auth: Arc<dyn AdminAuthService>,
     pub observability: Arc<dyn ObservabilitySink>,
+    pub notification: Arc<dyn NotificationSink>,
     pub image_blob: Option<AzuriteBlobAdapter>,
     pub config: AppConfig,
 }

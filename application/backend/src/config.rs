@@ -31,6 +31,7 @@ pub struct AppConfig {
     pub observability_backend: String,
     pub application_insights_connection_string: Option<String>,
     pub base_url: String,
+    pub slack_webhook_url: Option<String>,
 }
 
 impl AppConfig {
@@ -98,6 +99,7 @@ impl AppConfig {
                 .unwrap_or_else(|_| "http://127.0.0.1:8080".to_owned())
                 .trim_end_matches('/')
                 .to_owned(),
+            slack_webhook_url: env::var("SLACK_WEBHOOK_URL").ok(),
         })
     }
 

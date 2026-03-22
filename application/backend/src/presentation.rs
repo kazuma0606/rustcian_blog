@@ -9,6 +9,7 @@ use rustacian_blog_frontend::{render_post_page, render_posts_page};
 use std::{fs, path::Path};
 
 use crate::observability::AppEvent;
+use rustacian_blog_core::NotificationEvent;
 
 pub fn routes(cfg: &mut web::ServiceConfig) {
     cfg.service(health).service(
@@ -189,6 +190,13 @@ async fn generate_ai_metadata(
                 outcome: "success",
                 source_model: generated.source_model.clone(),
             });
+            let _ = data
+                .notification
+                .notify(NotificationEvent::AiMetadataGenerated {
+                    slug: slug.clone(),
+                    outcome: "success".to_owned(),
+                })
+                .await;
             generated
         }
         Err(error) => {
@@ -216,10 +224,19 @@ async fn regenerate_static_site(
         actix_web::error::ErrorNotImplemented("static publishing is not configured")
     })?;
     let build = use_case.execute().await.map_err(internal_app_error)?;
+    let page_count = build.pages.len();
+
+    let _ = data
+        .notification
+        .notify(NotificationEvent::StaticSiteRebuilt {
+            page_count,
+            outcome: "success".to_owned(),
+        })
+        .await;
 
     Ok(HttpResponse::Ok().json(serde_json::json!({
         "status": "ok",
-        "pages": build.pages.len(),
+        "pages": page_count,
         "assets": build.assets.len(),
         "target": match data.config.static_publish_backend.as_str() {
             "azurite" => format!("azurite:{}", data.config.static_publish_prefix),
@@ -555,9 +572,10 @@ mod tests {
     use chrono::{DateTime, Utc};
     use rustacian_blog_core::{
         AdminAuthService, AiAssistRequest, AiMetadataGenerator, GenerateAiMetadataUseCase,
-        GeneratedMetadata, GeneratedMetadataStore, GetPostUseCase, ListPostsUseCase, PostMetadata,
-        PostRepository, PostStatus, PostVisibility, PublishStaticSiteUseCase, StaticSiteBuild,
-        StaticSiteGenerator, StaticSitePublisher,
+        GeneratedMetadata, GeneratedMetadataStore, GetPostUseCase, ListPostsUseCase,
+        NotificationEvent, NotificationSink, PostMetadata, PostRepository, PostStatus,
+        PostVisibility, PublishStaticSiteUseCase, StaticSiteBuild, StaticSiteGenerator,
+        StaticSitePublisher,
     };
 
     use super::*;
@@ -583,6 +601,7 @@ mod tests {
     struct MockGeneratedMetadataStore;
 
     struct MockObservabilitySink;
+    struct MockNotificationSink;
     struct MockStaticSiteGenerator;
     #[derive(Default)]
     struct MockStaticSitePublisher;
@@ -653,6 +672,13 @@ mod tests {
     }
 
     #[async_trait]
+    impl NotificationSink for MockNotificationSink {
+        async fn notify(&self, _event: NotificationEvent) -> Result<(), BlogError> {
+            Ok(())
+        }
+    }
+
+    #[async_trait]
     impl StaticSiteGenerator for MockStaticSiteGenerator {
         async fn generate(&self) -> Result<StaticSiteBuild, BlogError> {
             Ok(StaticSiteBuild::default())
@@ -674,6 +700,7 @@ mod tests {
                 result: Err(AdminAuthError::Disabled),
             }),
             observability: Arc::new(MockObservabilitySink),
+            notification: Arc::new(MockNotificationSink),
             image_blob: None,
             generate_ai_metadata: None,
             publish_static_site: Some(PublishStaticSiteUseCase::new(
@@ -705,6 +732,7 @@ mod tests {
                 observability_backend: "noop".to_owned(),
                 application_insights_connection_string: None,
                 base_url: "http://127.0.0.1:8080".to_owned(),
+                slack_webhook_url: None,
             },
         }
     }

@@ -11,6 +11,7 @@ pub use domain::ai::{
     GeneratedMetadataStore,
 };
 pub use domain::error::BlogError;
+pub use domain::notification::{NotificationEvent, NotificationSink};
 pub use domain::post::{
     ChartDefinition, ChartPoint, Post, PostMetadata, PostStatus, PostSummary, PostVisibility,
     RenderedChart, TocItem,

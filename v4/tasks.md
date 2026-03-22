@@ -34,31 +34,31 @@
 ### 3.3 Phase 1 — Slack 通知基盤
 
 #### 3.3.1 Core ドメイン
-- [ ] `application/core/src/domain/notification.rs` を新規作成する
-- [ ] `NotificationSink` トレイトを定義する（`async fn notify(&self, event: NotificationEvent)`）
-- [ ] `NotificationEvent` enum を定義する
+- [x] `application/core/src/domain/notification.rs` を新規作成する
+- [x] `NotificationSink` トレイトを定義する（`async fn notify(&self, event: NotificationEvent)`）
+- [x] `NotificationEvent` enum を定義する
   - `StaticSiteRebuilt` / `CommentReceived` / `ContactFormSubmitted` / `AiMetadataGenerated`
   - ※ `PostPublished` は backend 対象外（content repo の CI で担当）
-- [ ] `domain/mod.rs` に `notification` モジュールを追加する
+- [x] `domain/mod.rs` に `notification` モジュールを追加する
 
 #### 3.3.2 Backend アダプター
-- [ ] `application/backend/src/notification.rs` を新規作成する
-- [ ] `NoopNotificationSink` を実装する（テスト・ローカル開発用）
-- [ ] `SlackNotificationSink` を実装する（Incoming Webhooks API へ `reqwest` で POST）
-- [ ] メッセージフォーマットを定義する（イベント種別ごとの Slack メッセージ文言）
-- [ ] `build_notification_sink()` ファクトリ関数を実装する（`SLACK_WEBHOOK_URL` 未設定時は Noop）
+- [x] `application/backend/src/notification.rs` を新規作成する
+- [x] `NoopNotificationSink` を実装する（テスト・ローカル開発用）
+- [x] `SlackNotificationSink` を実装する（Incoming Webhooks API へ `reqwest` で POST）
+- [x] メッセージフォーマットを定義する（イベント種別ごとの Slack メッセージ文言）
+- [x] `build_notification_sink()` ファクトリ関数を実装する（`SLACK_WEBHOOK_URL` 未設定時は Noop）
 
 #### 3.3.3 Config
-- [ ] `config.rs` に `slack_webhook_url: Option<String>` を追加する
-- [ ] `.env.local.example` に `SLACK_WEBHOOK_URL=` を追記する
+- [x] `config.rs` に `slack_webhook_url: Option<String>` を追加する
+- [x] `.env.local.example` に `SLACK_WEBHOOK_URL=` を追記する
 
 #### 3.3.4 AppState への組み込み
-- [ ] `state.rs` に `notification: Arc<dyn NotificationSink>` を追加する
-- [ ] `main.rs` でファクトリ呼び出しと DI を行う
+- [x] `state.rs` に `notification: Arc<dyn NotificationSink>` を追加する
+- [x] `main.rs` でファクトリ呼び出しと DI を行う
 
 #### 3.3.5 既存ルートへのフック
-- [ ] `POST /admin/static/regenerate` 完了後に `StaticSiteRebuilt` を emit する
-- [ ] `POST /admin/ai/{slug}/metadata` 完了後に `AiMetadataGenerated` を emit する
+- [x] `POST /admin/static/regenerate` 完了後に `StaticSiteRebuilt` を emit する
+- [x] `POST /admin/ai/{slug}/metadata` 完了後に `AiMetadataGenerated` を emit する
 
 #### 3.3.6 content repo への PostPublished 通知追加
 - [ ] `rustcian_blog_content/.github/workflows/build.yml` に Slack 通知ステップを追加する
@@ -66,8 +66,8 @@
 - [ ] `SLACK_WEBHOOK_URL` を content repo の Secrets に登録する
 
 #### 3.3.7 テスト
-- [ ] `NoopNotificationSink` で既存テストが引き続き通ることを確認する
-- [ ] `SlackNotificationSink` のメッセージ組み立てのユニットテストを追加する
+- [x] `NoopNotificationSink` で既存テストが引き続き通ることを確認する（61 tests pass）
+- [x] `SlackNotificationSink` のメッセージ組み立てのユニットテストを追加する
 
 ---
 

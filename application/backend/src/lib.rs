@@ -2,6 +2,7 @@ pub mod ai;
 pub mod auth;
 pub mod blob;
 pub mod config;
+pub mod notification;
 pub mod observability;
 pub mod presentation;
 pub mod state;

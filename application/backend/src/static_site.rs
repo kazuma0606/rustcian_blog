@@ -740,6 +740,7 @@ mod tests {
             observability_backend: "noop".to_owned(),
             application_insights_connection_string: None,
             base_url: "https://example.com".to_owned(),
+            slack_webhook_url: None,
         };
         let publisher = build_static_site_publisher(&config);
         let build = StaticSiteBuild {
@@ -787,6 +788,7 @@ mod tests {
             observability_backend: "noop".to_owned(),
             application_insights_connection_string: None,
             base_url: "https://example.com".to_owned(),
+            slack_webhook_url: None,
         };
         let publisher = build_static_site_publisher(&config);
         let build = StaticSiteBuild {

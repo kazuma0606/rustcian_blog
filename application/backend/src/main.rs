@@ -7,6 +7,7 @@ use rustacian_blog_backend::{
     auth::build_admin_auth_service,
     blob::AzuriteBlobAdapter,
     config::AppConfig,
+    notification::build_notification_sink,
     observability::{AppEvent, build_observability_sink},
     presentation,
     state::AppState,
@@ -59,6 +60,7 @@ async fn main() -> std::io::Result<()> {
         )),
         admin_auth: build_admin_auth_service(&config),
         observability: build_observability_sink(&config),
+        notification: build_notification_sink(&config),
         image_blob: config
             .azurite_blob_endpoint
             .clone()
