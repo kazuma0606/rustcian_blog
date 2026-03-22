@@ -45,8 +45,7 @@ jobs:
           tags: |
             ${{ secrets.ACR_LOGIN_SERVER }}/rustacian-blog:latest
             ${{ secrets.ACR_LOGIN_SERVER }}/rustacian-blog:content-${{ github.event.client_payload.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          no-cache: true
 
       - name: Update Container App image
         run: |
