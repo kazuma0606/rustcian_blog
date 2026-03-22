@@ -6,6 +6,8 @@ license.workspace = true
 
 [dependencies]
 actix-files.workspace = true
+actix-multipart.workspace = true
+futures-util = "0.3"
 actix-web.workspace = true
 ammonia = "4.0.0"
 async-trait.workspace = true

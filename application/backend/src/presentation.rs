@@ -1,7 +1,10 @@
 use crate::state::AppState;
+use actix_multipart::Multipart;
 use actix_web::{
-    HttpRequest, HttpResponse, Result, cookie::Cookie, get, http::header::ContentType, web,
+    HttpRequest, HttpResponse, Result, cookie::Cookie, delete, get, http::header::ContentType,
+    post, web,
 };
+use futures_util::TryStreamExt;
 use rustacian_blog_core::{
     AdminAuthError, AiGenerationScope, BlogError, Comment, CommentStatus, ContactMessage, Post,
     PostSummary, PostVisibility, SearchQuery,
@@ -48,7 +51,11 @@ fn admin_routes(cfg: &mut web::ServiceConfig) {
         .service(regenerate_static_site)
         .service(admin_comments)
         .service(approve_comment)
-        .service(reject_comment);
+        .service(reject_comment)
+        .service(admin_list_images)
+        .service(admin_upload_image)
+        .service(admin_delete_image)
+        .service(admin_set_hero);
 }
 
 #[get("/health")]
@@ -682,6 +689,175 @@ fn page_app_error(error: BlogError) -> actix_web::Error {
             actix_web::error::ErrorInternalServerError("content is unavailable")
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Admin: Image management
+// ---------------------------------------------------------------------------
+
+#[get("/images")]
+async fn admin_list_images(
+    request: HttpRequest,
+    data: web::Data<AppState>,
+) -> Result<HttpResponse> {
+    authenticate_admin(&request, &data, "admin_list_images")
+        .await
+        .map_err(admin_auth_error)?;
+    let blob = data
+        .image_blob
+        .as_ref()
+        .ok_or_else(|| actix_web::error::ErrorServiceUnavailable("blob storage not configured"))?;
+    let items = blob
+        .list_blobs("images/")
+        .await
+        .map_err(|e| actix_web::error::ErrorInternalServerError(e.to_string()))?;
+    let json: Vec<serde_json::Value> = items
+        .into_iter()
+        .map(|item| {
+            let filename = item
+                .name
+                .strip_prefix("images/")
+                .unwrap_or(&item.name)
+                .to_owned();
+            serde_json::json!({
+                "name": filename,
+                "url": format!("/images/{filename}"),
+                "content_type": item.content_type,
+                "last_modified": item.last_modified,
+                "size": item.size,
+            })
+        })
+        .collect();
+    Ok(HttpResponse::Ok().json(json))
+}
+
+#[post("/images")]
+async fn admin_upload_image(
+    request: HttpRequest,
+    data: web::Data<AppState>,
+    mut payload: Multipart,
+) -> Result<HttpResponse> {
+    authenticate_admin(&request, &data, "admin_upload_image")
+        .await
+        .map_err(admin_auth_error)?;
+    let blob = data
+        .image_blob
+        .as_ref()
+        .ok_or_else(|| actix_web::error::ErrorServiceUnavailable("blob storage not configured"))?;
+
+    if let Some(mut field) = payload
+        .try_next()
+        .await
+        .map_err(|e| actix_web::error::ErrorBadRequest(e.to_string()))?
+    {
+        let content_type = field
+            .content_type()
+            .map(|m| m.to_string())
+            .unwrap_or_else(|| "application/octet-stream".to_owned());
+
+        let filename = field
+            .content_disposition()
+            .and_then(|cd| cd.get_filename())
+            .unwrap_or("upload")
+            .to_owned();
+
+        // Restrict to image MIME types
+        if !content_type.starts_with("image/") {
+            return Err(actix_web::error::ErrorUnsupportedMediaType(
+                "only image/* content types are accepted",
+            ));
+        }
+
+        let mut bytes = Vec::new();
+        while let Some(chunk) = field
+            .try_next()
+            .await
+            .map_err(|e| actix_web::error::ErrorBadRequest(e.to_string()))?
+        {
+            bytes.extend_from_slice(&chunk);
+        }
+
+        let blob_name = format!("images/{filename}");
+        blob.put_bytes(&blob_name, bytes, &content_type)
+            .await
+            .map_err(|e| actix_web::error::ErrorInternalServerError(e.to_string()))?;
+
+        return Ok(HttpResponse::Created().json(serde_json::json!({
+            "name": filename,
+            "url": format!("/images/{filename}"),
+        })));
+    }
+
+    Err(actix_web::error::ErrorBadRequest(
+        "no file field in multipart body",
+    ))
+}
+
+#[delete("/images/{name}")]
+async fn admin_delete_image(
+    request: HttpRequest,
+    data: web::Data<AppState>,
+    path: web::Path<String>,
+) -> Result<HttpResponse> {
+    authenticate_admin(&request, &data, "admin_delete_image")
+        .await
+        .map_err(admin_auth_error)?;
+    let blob = data
+        .image_blob
+        .as_ref()
+        .ok_or_else(|| actix_web::error::ErrorServiceUnavailable("blob storage not configured"))?;
+    let filename = path.into_inner();
+    blob.delete_blob(&format!("images/{filename}"))
+        .await
+        .map_err(|e| actix_web::error::ErrorInternalServerError(e.to_string()))?;
+    Ok(HttpResponse::NoContent().finish())
+}
+
+#[derive(serde::Deserialize)]
+struct SetHeroBody {
+    image: String,
+}
+
+#[post("/posts/{slug}/hero")]
+async fn admin_set_hero(
+    request: HttpRequest,
+    data: web::Data<AppState>,
+    path: web::Path<String>,
+    body: web::Json<SetHeroBody>,
+) -> Result<HttpResponse> {
+    authenticate_admin(&request, &data, "admin_set_hero")
+        .await
+        .map_err(admin_auth_error)?;
+    let slug = path.into_inner();
+    let meta_path = data
+        .config
+        .content_root
+        .join("posts")
+        .join(&slug)
+        .join("meta.yml");
+
+    if !meta_path.exists() {
+        return Err(actix_web::error::ErrorNotFound("post not found"));
+    }
+
+    let raw = fs::read_to_string(&meta_path)
+        .map_err(|e| actix_web::error::ErrorInternalServerError(e.to_string()))?;
+    let mut value: serde_yaml::Value = serde_yaml::from_str(&raw)
+        .map_err(|e| actix_web::error::ErrorInternalServerError(e.to_string()))?;
+
+    if let serde_yaml::Value::Mapping(ref mut map) = value {
+        map.insert(
+            serde_yaml::Value::String("hero_image".to_owned()),
+            serde_yaml::Value::String(body.image.clone()),
+        );
+    }
+
+    let updated = serde_yaml::to_string(&value)
+        .map_err(|e| actix_web::error::ErrorInternalServerError(e.to_string()))?;
+    fs::write(&meta_path, updated)
+        .map_err(|e| actix_web::error::ErrorInternalServerError(e.to_string()))?;
+
+    Ok(HttpResponse::Ok().json(serde_json::json!({"slug": slug, "hero_image": body.image})))
 }
 
 fn admin_auth_error(error: AdminAuthError) -> actix_web::Error {

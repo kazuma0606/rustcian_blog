@@ -131,6 +131,49 @@ impl AzuriteBlobAdapter {
         }
     }
 
+    pub async fn delete_blob(&self, blob_name: &str) -> Result<(), BlogError> {
+        let response = self.request_blob(Method::DELETE, blob_name, None).await?;
+        match response.status() {
+            StatusCode::ACCEPTED | StatusCode::OK => Ok(()),
+            StatusCode::NOT_FOUND => Ok(()),
+            status => Err(BlogError::Storage(format!(
+                "failed to delete blob {blob_name}: {status}"
+            ))),
+        }
+    }
+
+    pub async fn list_blobs(&self, prefix: &str) -> Result<Vec<BlobItem>, BlogError> {
+        let mut query = BTreeMap::new();
+        query.insert("restype".to_owned(), "container".to_owned());
+        query.insert("comp".to_owned(), "list".to_owned());
+        if !prefix.is_empty() {
+            query.insert("prefix".to_owned(), prefix.to_owned());
+        }
+        let response = self
+            .request(
+                Method::GET,
+                &format!("/{AZURITE_CONTAINER}"),
+                None,
+                Some(query),
+                true,
+            )
+            .await?;
+
+        if !response.status().is_success() {
+            return Err(BlogError::Storage(format!(
+                "failed to list blobs: {}",
+                response.status()
+            )));
+        }
+
+        let body = response
+            .text()
+            .await
+            .map_err(|e| BlogError::Storage(e.to_string()))?;
+
+        Ok(parse_blob_list_xml(&body))
+    }
+
     pub async fn create_container_if_needed(&self) -> Result<(), BlogError> {
         let mut query = BTreeMap::new();
         query.insert("restype".to_owned(), "container".to_owned());
@@ -246,6 +289,41 @@ impl AzuriteBlobAdapter {
             .await
             .map_err(|error| BlogError::Storage(error.to_string()))
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct BlobItem {
+    pub name: String,
+    pub content_type: Option<String>,
+    pub last_modified: Option<String>,
+    pub size: Option<u64>,
+}
+
+/// Minimal XML parser for Azure Blob List response.
+/// Extracts blob names and properties without pulling in an XML crate.
+fn parse_blob_list_xml(xml: &str) -> Vec<BlobItem> {
+    let mut items = Vec::new();
+    for blob_block in xml.split("<Blob>").skip(1) {
+        let name = extract_xml_tag(blob_block, "Name").unwrap_or_default();
+        let content_type = extract_xml_tag(blob_block, "Content-Type");
+        let last_modified = extract_xml_tag(blob_block, "Last-Modified");
+        let size = extract_xml_tag(blob_block, "Content-Length").and_then(|v| v.parse().ok());
+        items.push(BlobItem {
+            name,
+            content_type,
+            last_modified,
+            size,
+        });
+    }
+    items
+}
+
+fn extract_xml_tag(xml: &str, tag: &str) -> Option<String> {
+    let open = format!("<{tag}>");
+    let close = format!("</{tag}>");
+    let start = xml.find(&open)? + open.len();
+    let end = xml[start..].find(&close)?;
+    Some(xml[start..start + end].to_owned())
 }
 
 fn build_authorization_header(
