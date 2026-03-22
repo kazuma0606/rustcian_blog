@@ -27,11 +27,19 @@ impl AzuriteTableClient {
     pub async fn create_table_if_needed(&self, table_name: &str) -> Result<(), BlogError> {
         let body = serde_json::json!({ "TableName": table_name });
         let resp = self
-            .request(Method::POST, "/Tables", Some(body), "application/json", None)
+            .request(
+                Method::POST,
+                "/Tables",
+                Some(body),
+                "application/json",
+                None,
+            )
             .await?;
         match resp.status() {
             StatusCode::CREATED | StatusCode::CONFLICT => Ok(()),
-            s => Err(BlogError::Storage(format!("create_table {table_name}: {s}"))),
+            s => Err(BlogError::Storage(format!(
+                "create_table {table_name}: {s}"
+            ))),
         }
     }
 
@@ -42,7 +50,13 @@ impl AzuriteTableClient {
     ) -> Result<(), BlogError> {
         let path = format!("/{table_name}");
         let resp = self
-            .request(Method::POST, &path, Some(entity.clone()), "application/json", None)
+            .request(
+                Method::POST,
+                &path,
+                Some(entity.clone()),
+                "application/json",
+                None,
+            )
             .await?;
         match resp.status() {
             StatusCode::CREATED | StatusCode::NO_CONTENT => Ok(()),
@@ -84,8 +98,10 @@ impl AzuriteTableClient {
             let body = resp.text().await.unwrap_or_default();
             return Err(BlogError::Storage(format!("query_entities: {s}: {body}")));
         }
-        let json: serde_json::Value =
-            resp.json().await.map_err(|e| BlogError::Storage(e.to_string()))?;
+        let json: serde_json::Value = resp
+            .json()
+            .await
+            .map_err(|e| BlogError::Storage(e.to_string()))?;
         Ok(json["value"].as_array().cloned().unwrap_or_default())
     }
 
@@ -103,7 +119,13 @@ impl AzuriteTableClient {
             urlencoding::encode(rk)
         );
         let resp = self
-            .request(Method::PUT, &path, Some(entity.clone()), "application/json", Some("*"))
+            .request(
+                Method::PUT,
+                &path,
+                Some(entity.clone()),
+                "application/json",
+                Some("*"),
+            )
             .await?;
         match resp.status() {
             StatusCode::NO_CONTENT | StatusCode::CREATED => Ok(()),
@@ -140,11 +162,13 @@ impl AzuriteTableClient {
             builder = builder.header("If-Match", etag);
         }
         if let Some(json) = body {
-            let bytes =
-                serde_json::to_vec(&json).map_err(|e| BlogError::Storage(e.to_string()))?;
+            let bytes = serde_json::to_vec(&json).map_err(|e| BlogError::Storage(e.to_string()))?;
             builder = builder.body(bytes);
         }
-        builder.send().await.map_err(|e| BlogError::Storage(e.to_string()))
+        builder
+            .send()
+            .await
+            .map_err(|e| BlogError::Storage(e.to_string()))
     }
 }
 
@@ -153,13 +177,15 @@ fn build_auth(date: &str, canonicalized_resource: &str) -> Result<String, BlogEr
     let key = STANDARD
         .decode(AZURITE_ACCOUNT_KEY)
         .map_err(|e| BlogError::Storage(e.to_string()))?;
-    let mut mac = Hmac::<Sha256>::new_from_slice(&key)
-        .map_err(|e| BlogError::Storage(e.to_string()))?;
+    let mut mac =
+        Hmac::<Sha256>::new_from_slice(&key).map_err(|e| BlogError::Storage(e.to_string()))?;
     mac.update(string_to_sign.as_bytes());
     let sig = STANDARD.encode(mac.finalize().into_bytes());
     Ok(format!("SharedKeyLite {AZURITE_ACCOUNT}:{sig}"))
 }
 
 fn now_rfc1123() -> String {
-    chrono::Utc::now().format("%a, %d %b %Y %H:%M:%S GMT").to_string()
+    chrono::Utc::now()
+        .format("%a, %d %b %Y %H:%M:%S GMT")
+        .to_string()
 }

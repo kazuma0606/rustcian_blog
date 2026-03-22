@@ -6,7 +6,7 @@ use tantivy::{
     collector::TopDocs,
     doc,
     query::QueryParser,
-    schema::{Field, Schema, Value, STORED, STRING, TEXT},
+    schema::{Field, STORED, STRING, Schema, TEXT, Value},
 };
 
 struct SearchInner {
@@ -33,7 +33,15 @@ impl TantivySearchIndex {
         let tags = builder.add_text_field("tags", TEXT | STORED);
         let date = builder.add_text_field("date", STRING | STORED);
         let schema = builder.build();
-        Self { schema, slug, title, body_text, tags, date, inner: RwLock::new(None) }
+        Self {
+            schema,
+            slug,
+            title,
+            body_text,
+            tags,
+            date,
+            inner: RwLock::new(None),
+        }
     }
 
     /// (Re)build the in-memory index from a list of posts.
@@ -90,7 +98,8 @@ impl TantivySearchIndex {
         };
 
         let searcher = inner.reader.searcher();
-        let mut parser = QueryParser::for_index(&inner.index, vec![self.title, self.body_text, self.tags]);
+        let mut parser =
+            QueryParser::for_index(&inner.index, vec![self.title, self.body_text, self.tags]);
         parser.set_conjunction_by_default();
 
         let query = match parser.parse_query(query_str) {
@@ -138,7 +147,13 @@ impl TantivySearchIndex {
                 .unwrap_or("")
                 .to_owned();
 
-            results.push(SearchResult { slug, title, excerpt, tags, date });
+            results.push(SearchResult {
+                slug,
+                title,
+                excerpt,
+                tags,
+                date,
+            });
         }
         Ok(results)
     }
@@ -152,7 +167,10 @@ impl Default for TantivySearchIndex {
 
 /// Strip all HTML tags from a string and return plain text.
 fn strip_html(html: &str) -> String {
-    ammonia::Builder::new().tags(HashSet::new()).clean(html).to_string()
+    ammonia::Builder::new()
+        .tags(HashSet::new())
+        .clean(html)
+        .to_string()
 }
 
 fn truncate(s: &str, max_chars: usize) -> String {
@@ -202,8 +220,18 @@ mod tests {
     fn index_returns_matching_post() {
         let idx = TantivySearchIndex::new();
         let posts = vec![
-            make_post("hello-rust", "Hello Rust", "<p>Rust is amazing for systems programming</p>", PostStatus::Published),
-            make_post("intro-actix", "Intro to Actix", "<p>Actix Web framework tutorial</p>", PostStatus::Published),
+            make_post(
+                "hello-rust",
+                "Hello Rust",
+                "<p>Rust is amazing for systems programming</p>",
+                PostStatus::Published,
+            ),
+            make_post(
+                "intro-actix",
+                "Intro to Actix",
+                "<p>Actix Web framework tutorial</p>",
+                PostStatus::Published,
+            ),
         ];
         idx.rebuild(&posts).unwrap();
 
@@ -231,13 +259,26 @@ mod tests {
     fn draft_posts_are_not_indexed() {
         let idx = TantivySearchIndex::new();
         let posts = vec![
-            make_post("published-post", "Published", "<p>public content</p>", PostStatus::Published),
-            make_post("draft-post", "Draft Secret", "<p>secret draft content</p>", PostStatus::Draft),
+            make_post(
+                "published-post",
+                "Published",
+                "<p>public content</p>",
+                PostStatus::Published,
+            ),
+            make_post(
+                "draft-post",
+                "Draft Secret",
+                "<p>secret draft content</p>",
+                PostStatus::Draft,
+            ),
         ];
         idx.rebuild(&posts).unwrap();
 
         let results = idx.search("secret draft", 10).unwrap();
-        assert!(results.is_empty(), "draft should not appear in search results");
+        assert!(
+            results.is_empty(),
+            "draft should not appear in search results"
+        );
 
         let results = idx.search("public content", 10).unwrap();
         assert_eq!(results.len(), 1);
@@ -247,7 +288,12 @@ mod tests {
     #[test]
     fn empty_query_returns_empty() {
         let idx = TantivySearchIndex::new();
-        let posts = vec![make_post("p1", "Post 1", "<p>content</p>", PostStatus::Published)];
+        let posts = vec![make_post(
+            "p1",
+            "Post 1",
+            "<p>content</p>",
+            PostStatus::Published,
+        )];
         idx.rebuild(&posts).unwrap();
 
         let results = idx.search("", 10).unwrap();
@@ -257,10 +303,20 @@ mod tests {
     #[test]
     fn rebuild_replaces_old_index() {
         let idx = TantivySearchIndex::new();
-        let v1 = vec![make_post("old-post", "Old Post", "<p>old content</p>", PostStatus::Published)];
+        let v1 = vec![make_post(
+            "old-post",
+            "Old Post",
+            "<p>old content</p>",
+            PostStatus::Published,
+        )];
         idx.rebuild(&v1).unwrap();
 
-        let v2 = vec![make_post("new-post", "New Post", "<p>new content</p>", PostStatus::Published)];
+        let v2 = vec![make_post(
+            "new-post",
+            "New Post",
+            "<p>new content</p>",
+            PostStatus::Published,
+        )];
         idx.rebuild(&v2).unwrap();
 
         let old = idx.search("old content", 10).unwrap();

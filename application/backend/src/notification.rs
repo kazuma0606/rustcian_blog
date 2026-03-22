@@ -37,7 +37,10 @@ impl SlackNotificationSink {
 
     fn format_message(event: &NotificationEvent) -> String {
         match event {
-            NotificationEvent::StaticSiteRebuilt { page_count, outcome } => {
+            NotificationEvent::StaticSiteRebuilt {
+                page_count,
+                outcome,
+            } => {
                 format!("🔨 静的サイトを再生成しました（{page_count} ページ, outcome: {outcome}）")
             }
             NotificationEvent::CommentReceived { slug, author_name } => {
@@ -111,10 +114,9 @@ mod tests {
 
     #[test]
     fn contact_form_submitted_message() {
-        let msg =
-            SlackNotificationSink::format_message(&NotificationEvent::ContactFormSubmitted {
-                from_name: "Bob".to_owned(),
-            });
+        let msg = SlackNotificationSink::format_message(&NotificationEvent::ContactFormSubmitted {
+            from_name: "Bob".to_owned(),
+        });
         assert!(msg.contains("Bob"));
     }
 

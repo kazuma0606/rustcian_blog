@@ -14,12 +14,13 @@ use rustacian_blog_backend::{
     notification::build_notification_sink,
     observability::{AppEvent, build_observability_sink},
     presentation,
+    search::TantivySearchIndex,
     state::AppState,
     static_site::{LocalFileAssetStore, LocalStaticSiteGenerator, build_static_site_publisher},
     storage::{AzuritePostRepository, LocalContentPostRepository, seed_azurite_from_local},
 };
 use rustacian_blog_core::{
-    GenerateAiMetadataUseCase, GetPostUseCase, ListPostsUseCase, PostRepository,
+    GenerateAiMetadataUseCase, GetPostUseCase, ListPostsUseCase, PostRepository, PostVisibility,
     PublishStaticSiteUseCase,
 };
 
@@ -54,6 +55,27 @@ async fn main() -> std::io::Result<()> {
             .expect("failed to create contacts table");
     }
 
+    // Build initial search index from all published posts.
+    let search_index = Arc::new(TantivySearchIndex::new());
+    {
+        let slugs = repository
+            .list_posts(PostVisibility::PublishedOnly)
+            .await
+            .unwrap_or_default();
+        let mut posts = Vec::with_capacity(slugs.len());
+        for s in &slugs {
+            if let Ok(post) = repository
+                .get_post(&s.slug, PostVisibility::PublishedOnly)
+                .await
+            {
+                posts.push(post);
+            }
+        }
+        if let Err(e) = search_index.rebuild(&posts) {
+            eprintln!("warn: search index build failed: {e}");
+        }
+    }
+
     let static_generator = Arc::new(LocalStaticSiteGenerator::new(
         repository.clone(),
         Arc::new(LocalFileAssetStore::new(config.content_root.clone())),
@@ -79,6 +101,7 @@ async fn main() -> std::io::Result<()> {
         notification: build_notification_sink(&config),
         comment_repo: build_comment_repository(&config),
         contact_repo: build_contact_repository(&config),
+        search_index,
         image_blob: config
             .azurite_blob_endpoint
             .clone()

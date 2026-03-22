@@ -9,19 +9,8 @@ pub trait NotificationSink: Send + Sync {
 
 #[derive(Debug, Clone)]
 pub enum NotificationEvent {
-    StaticSiteRebuilt {
-        page_count: usize,
-        outcome: String,
-    },
-    CommentReceived {
-        slug: String,
-        author_name: String,
-    },
-    ContactFormSubmitted {
-        from_name: String,
-    },
-    AiMetadataGenerated {
-        slug: String,
-        outcome: String,
-    },
+    StaticSiteRebuilt { page_count: usize, outcome: String },
+    CommentReceived { slug: String, author_name: String },
+    ContactFormSubmitted { from_name: String },
+    AiMetadataGenerated { slug: String, outcome: String },
 }

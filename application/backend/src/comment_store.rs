@@ -31,7 +31,9 @@ pub struct InMemoryCommentRepository {
 
 impl Default for InMemoryCommentRepository {
     fn default() -> Self {
-        Self { data: Arc::new(RwLock::new(Vec::new())) }
+        Self {
+            data: Arc::new(RwLock::new(Vec::new())),
+        }
     }
 }
 
@@ -82,7 +84,9 @@ pub struct InMemoryContactRepository {
 
 impl Default for InMemoryContactRepository {
     fn default() -> Self {
-        Self { data: Arc::new(RwLock::new(Vec::new())) }
+        Self {
+            data: Arc::new(RwLock::new(Vec::new())),
+        }
     }
 }
 
@@ -104,7 +108,9 @@ pub struct AzuriteCommentRepository {
 
 impl AzuriteCommentRepository {
     pub fn new(table_endpoint: String) -> Self {
-        Self { table: AzuriteTableClient::new(table_endpoint) }
+        Self {
+            table: AzuriteTableClient::new(table_endpoint),
+        }
     }
 
     pub async fn init(&self) -> Result<(), BlogError> {
@@ -136,7 +142,10 @@ impl CommentRepository for AzuriteCommentRepository {
         } else {
             format!("PartitionKey eq '{slug}' and status eq 'Approved'")
         };
-        let rows = self.table.query_entities(COMMENTS_TABLE, Some(&filter)).await?;
+        let rows = self
+            .table
+            .query_entities(COMMENTS_TABLE, Some(&filter))
+            .await?;
         rows.iter().map(row_to_comment).collect()
     }
 
@@ -154,11 +163,15 @@ impl CommentRepository for AzuriteCommentRepository {
             .table
             .query_entities(COMMENTS_TABLE, Some(&format!("RowKey eq '{id}'")))
             .await?;
-        let row = rows.first().ok_or_else(|| BlogError::NotFound(id.to_owned()))?;
+        let row = rows
+            .first()
+            .ok_or_else(|| BlogError::NotFound(id.to_owned()))?;
         let mut updated = row.clone();
         updated["status"] = serde_json::json!(format!("{status:?}"));
         let pk = row["PartitionKey"].as_str().unwrap_or_default().to_owned();
-        self.table.upsert_entity(COMMENTS_TABLE, &pk, id, &updated).await
+        self.table
+            .upsert_entity(COMMENTS_TABLE, &pk, id, &updated)
+            .await
     }
 }
 
@@ -168,7 +181,9 @@ pub struct AzuriteContactRepository {
 
 impl AzuriteContactRepository {
     pub fn new(table_endpoint: String) -> Self {
-        Self { table: AzuriteTableClient::new(table_endpoint) }
+        Self {
+            table: AzuriteTableClient::new(table_endpoint),
+        }
     }
 
     pub async fn init(&self) -> Result<(), BlogError> {
@@ -274,8 +289,12 @@ mod tests {
     #[tokio::test]
     async fn in_memory_list_all_pending() {
         let repo = InMemoryCommentRepository::default();
-        repo.create_comment(&make_comment("1", "slug-a", "Alice")).await.unwrap();
-        repo.create_comment(&make_comment("2", "slug-b", "Bob")).await.unwrap();
+        repo.create_comment(&make_comment("1", "slug-a", "Alice"))
+            .await
+            .unwrap();
+        repo.create_comment(&make_comment("2", "slug-b", "Bob"))
+            .await
+            .unwrap();
 
         let pending = repo.list_all_pending().await.unwrap();
         assert_eq!(pending.len(), 2);
@@ -284,9 +303,13 @@ mod tests {
     #[tokio::test]
     async fn in_memory_update_status_approve() {
         let repo = InMemoryCommentRepository::default();
-        repo.create_comment(&make_comment("id-1", "test", "Alice")).await.unwrap();
+        repo.create_comment(&make_comment("id-1", "test", "Alice"))
+            .await
+            .unwrap();
 
-        repo.update_status("id-1", CommentStatus::Approved).await.unwrap();
+        repo.update_status("id-1", CommentStatus::Approved)
+            .await
+            .unwrap();
 
         let approved = repo.list_comments("test", false).await.unwrap();
         assert_eq!(approved.len(), 1);
@@ -295,9 +318,13 @@ mod tests {
     #[tokio::test]
     async fn in_memory_update_status_reject() {
         let repo = InMemoryCommentRepository::default();
-        repo.create_comment(&make_comment("id-2", "test", "Bob")).await.unwrap();
+        repo.create_comment(&make_comment("id-2", "test", "Bob"))
+            .await
+            .unwrap();
 
-        repo.update_status("id-2", CommentStatus::Rejected).await.unwrap();
+        repo.update_status("id-2", CommentStatus::Rejected)
+            .await
+            .unwrap();
 
         let pending = repo.list_all_pending().await.unwrap();
         assert!(pending.is_empty());
@@ -308,7 +335,9 @@ mod tests {
     #[tokio::test]
     async fn in_memory_update_status_not_found() {
         let repo = InMemoryCommentRepository::default();
-        let result = repo.update_status("nonexistent", CommentStatus::Approved).await;
+        let result = repo
+            .update_status("nonexistent", CommentStatus::Approved)
+            .await;
         assert!(matches!(result, Err(BlogError::NotFound(_))));
     }
 

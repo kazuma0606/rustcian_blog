@@ -150,7 +150,11 @@ fn event_to_name_and_props(event: &AppEvent) -> (&'static str, serde_json::Map<S
             props.insert("outcome".to_owned(), json!(outcome));
             "admin_auth_checked"
         }
-        AppEvent::AiMetadataGenerated { slug, outcome, source_model } => {
+        AppEvent::AiMetadataGenerated {
+            slug,
+            outcome,
+            source_model,
+        } => {
             props.insert("slug".to_owned(), json!(slug));
             props.insert("outcome".to_owned(), json!(outcome));
             if let Some(m) = source_model {
@@ -158,7 +162,11 @@ fn event_to_name_and_props(event: &AppEvent) -> (&'static str, serde_json::Map<S
             }
             "ai_metadata_generated"
         }
-        AppEvent::StaticSitePublished { target, pages, assets } => {
+        AppEvent::StaticSitePublished {
+            target,
+            pages,
+            assets,
+        } => {
             props.insert("target".to_owned(), json!(target));
             props.insert("pages".to_owned(), json!(pages.to_string()));
             props.insert("assets".to_owned(), json!(assets.to_string()));
@@ -291,7 +299,10 @@ mod tests {
 
     #[test]
     fn build_telemetry_payload_public_request_served_without_slug() {
-        let event = AppEvent::PublicRequestServed { route: "index_page", slug: None };
+        let event = AppEvent::PublicRequestServed {
+            route: "index_page",
+            slug: None,
+        };
         let payload = build_telemetry_payload(&event, "ikey");
 
         assert!(payload[0]["data"]["baseData"]["properties"]["slug"].is_null());
@@ -355,6 +366,9 @@ mod tests {
     fn appinsights_sink_falls_back_to_default_ingestion_endpoint() {
         let cs = "InstrumentationKey=mykey";
         let sink = ApplicationInsightsObservabilitySink::from_connection_string(cs).unwrap();
-        assert_eq!(sink.endpoint, "https://dc.services.visualstudio.com/v2/track");
+        assert_eq!(
+            sink.endpoint,
+            "https://dc.services.visualstudio.com/v2/track"
+        );
     }
 }
