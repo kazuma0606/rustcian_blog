@@ -754,6 +754,10 @@ fn map_post(post: Post) -> rustacian_blog_frontend::PostView {
             })
             .collect(),
         body_html: resolve_body_asset_urls(&post.body_html, &slug),
+        status: match post.status {
+            rustacian_blog_core::PostStatus::Published => "published".to_owned(),
+            rustacian_blog_core::PostStatus::Draft => "draft".to_owned(),
+        },
     }
 }
 

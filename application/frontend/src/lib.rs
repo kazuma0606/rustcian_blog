@@ -91,6 +91,9 @@ pub struct PostView {
     pub charts: Vec<RenderedChartView>,
     pub toc_items: Vec<TocItemView>,
     pub body_html: String,
+    /// "published" | "draft"
+    #[serde(default)]
+    pub status: String,
 }
 
 pub fn render_posts_page(posts: Vec<PostSummaryView>) -> String {
@@ -384,10 +387,10 @@ pub fn render_admin_dashboard(posts: Vec<PostSummaryView>) -> String {
 }
 
 pub fn render_admin_post_detail(post: PostView, metadata: Option<GeneratedMetadataView>) -> String {
-    let status_badge = if post.body_html.is_empty() {
-        r#"<span class="badge badge-draft">draft</span>"#
-    } else {
+    let status_badge = if post.status == "published" {
         r#"<span class="badge badge-pub">published</span>"#
+    } else {
+        r#"<span class="badge badge-draft">draft</span>"#
     };
     let tags = esc(&post.tags.join(", "));
 
@@ -1350,6 +1353,7 @@ mod tests {
             body_html:
                 "<p><span class=\"math-inline\">\\(x^2\\)</span></p><div class=\"math-display\">\\[x+y\\]</div><pre class=\"mermaid\">flowchart LR\nA --&gt; B</pre>"
                     .to_owned(),
+            status: "published".to_owned(),
         }
     }
 
