@@ -150,18 +150,18 @@
 ### 3.6 Phase 4 — Application Insights
 
 #### 3.6.1 Backend 実装
-- [ ] `application/backend/src/observability.rs` に `ApplicationInsightsObservabilitySink` を追加する
-- [ ] Azure Monitor Track REST API エンドポイントへの POST を実装する（`reqwest`）
-- [ ] `AppEvent` の各バリアントを Application Insights の `customEvent` / `request` スキーマにマップする
-- [ ] `APPLICATIONINSIGHTS_CONNECTION_STRING` からエンドポイント URL と Instrumentation Key を解析する
+- [x] `application/backend/src/observability.rs` に `ApplicationInsightsObservabilitySink` を追加する
+- [x] Azure Monitor Track REST API エンドポイントへの POST を実装する（`reqwest`、fire-and-forget `tokio::spawn`）
+- [x] `AppEvent` の各バリアントを Application Insights の `customEvent`（`EventData`）スキーマにマップする
+- [x] `APPLICATIONINSIGHTS_CONNECTION_STRING` からエンドポイント URL と Instrumentation Key を解析する
 
 #### 3.6.2 Config
-- [ ] `config.rs` の `observability_backend` に `appinsights` 値を追加する
-- [ ] `build_observability_sink()` ファクトリに `appinsights` ブランチを追加する
-- [ ] `.env.local.example` に `OBSERVABILITY_BACKEND=stdout` を明示する
+- [x] `config.rs` の `observability_backend` に `appinsights` 値を追加する
+- [x] `build_observability_sink()` ファクトリに `appinsights` ブランチを追加する（未設定時は stdout にフォールバック）
+- [x] `.env.local.example` に `OBSERVABILITY_BACKEND=stdout` と `appinsights` 設定例を追記する
 
 #### 3.6.3 テスト
-- [ ] `ApplicationInsightsObservabilitySink` のペイロード組み立てのユニットテストを追加する
+- [x] `ApplicationInsightsObservabilitySink` のペイロード組み立てのユニットテストを追加する（9 tests）
 
 ---
 
