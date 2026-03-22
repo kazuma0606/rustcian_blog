@@ -209,23 +209,22 @@
 ### 3.8 Phase 6 — Admin UI（Leptos SSR）
 
 #### 3.8.1 Frontend render 関数
-- [ ] `render_admin_dashboard(posts: Vec<PostSummary>) -> String` を実装する
-  - ※ `BuildInfo` は削除（v3.5 で CI artifact になったため参照不可）
-- [ ] `render_admin_post_detail(post: Post, generated_metadata: Option<GeneratedMetadata>) -> String` を実装する
-- [ ] `render_admin_comments(pending: Vec<Comment>, approved: Vec<Comment>) -> String` を実装する
-- [ ] `render_admin_static_panel() -> String` を実装する
-  - 再生成ボタンのみ（最終ビルド情報は observability イベントから取得）
-- [ ] Admin UI 共通 CSS を定義する（記事ページの warm beige/brown カラースキーム・フォント流用）
+- [x] `render_admin_dashboard(posts: Vec<PostSummaryView>) -> String` を実装する（PostSummaryView に `status` フィールド追加）
+- [x] `render_admin_post_detail(post: PostView, metadata: Option<GeneratedMetadataView>) -> String` を実装する
+- [x] `render_admin_comments(pending: Vec<CommentView>) -> String` を実装する（承認待ちのみ）
+- [x] `render_admin_static_panel() -> String` を実装する（再生成ボタンのみ）
+- [x] Admin UI 共通 CSS を定義する（warm beige/brown スキーム、`ADMIN_CSS` 定数）
 
 #### 3.8.2 ルート更新
-- [ ] `GET /admin` を `render_admin_dashboard()` に切り替える
-- [ ] `GET /admin/posts/{slug}` を追加し `render_admin_post_detail()` を呼ぶ
-- [ ] `GET /admin/comments` を `render_admin_comments()` に切り替える
-- [ ] `GET /admin/static` を追加し `render_admin_static_panel()` を呼ぶ
+- [x] `GET /admin` を `render_admin_dashboard()` に切り替える（旧 render_admin_home 削除）
+- [x] `GET /admin/posts/{slug}` を追加し `render_admin_post_detail()` を呼ぶ（metadata JSON ファイルを読み込んで表示）
+- [x] `GET /admin/comments` を `render_admin_comments()` に切り替える
+- [x] `GET /admin/static` を追加し `render_admin_static_panel()` を呼ぶ
 
 #### 3.8.3 テスト
-- [ ] 各 render 関数の出力に期待するマークアップが含まれることを確認するテストを追加する
-- [ ] Admin ルートが認証なしでアクセスできないことを確認するテストを追加する
+- [x] `admin_dashboard_contains_post_table` テストを追加する
+- [x] `admin_post_detail_returns_html_for_published_post` / `admin_post_detail_requires_auth` を追加する
+- [x] `admin_static_panel_returns_html` / `admin_static_panel_requires_auth` を追加する
 
 ---
 
