@@ -5,6 +5,8 @@ on:
     branches:
       - main
       - master
+  repository_dispatch:
+    types: [content-updated]
   workflow_dispatch:
     inputs:
       site_ref:
@@ -24,10 +26,17 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout code
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.inputs.site_ref || github.ref }}
+
+      - name: Checkout content
+        uses: actions/checkout@v4
+        with:
+          repository: kazuma0606/rustcian_blog_content
+          token: ${{ secrets.CONTENT_REPO_PAT }}
+          path: content
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
