@@ -11,4 +11,4 @@
 /secrets/
 *.log
 cap/*
-/content/
+/content//dist/
