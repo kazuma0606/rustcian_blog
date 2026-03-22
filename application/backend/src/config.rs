@@ -25,6 +25,7 @@ pub struct AppConfig {
     pub entra_oidc_metadata_url: Option<String>,
     pub entra_admin_group_id: Option<String>,
     pub entra_admin_user_oid: Option<String>,
+    pub entra_redirect_uri: Option<String>,
     pub static_output_dir: PathBuf,
     pub static_publish_backend: String,
     pub static_publish_prefix: String,
@@ -32,6 +33,8 @@ pub struct AppConfig {
     pub application_insights_connection_string: Option<String>,
     pub base_url: String,
     pub slack_webhook_url: Option<String>,
+    pub cloudflare_zone_id: Option<String>,
+    pub cloudflare_api_token: Option<String>,
 }
 
 impl AppConfig {
@@ -79,6 +82,7 @@ impl AppConfig {
             entra_oidc_metadata_url: env::var("ENTRA_OIDC_METADATA_URL").ok(),
             entra_admin_group_id: env::var("ENTRA_ADMIN_GROUP_ID").ok(),
             entra_admin_user_oid: env::var("ENTRA_ADMIN_USER_OID").ok(),
+            entra_redirect_uri: env::var("ENTRA_REDIRECT_URI").ok(),
             static_output_dir: resolve_workspace_path(
                 &workspace_root,
                 env::var("STATIC_OUTPUT_DIR").unwrap_or_else(|_| "./dist".to_owned()),
@@ -100,6 +104,8 @@ impl AppConfig {
                 .trim_end_matches('/')
                 .to_owned(),
             slack_webhook_url: env::var("SLACK_WEBHOOK_URL").ok(),
+            cloudflare_zone_id: env::var("CLOUDFLARE_ZONE_ID").ok(),
+            cloudflare_api_token: env::var("CLOUDFLARE_API_TOKEN").ok(),
         })
     }
 

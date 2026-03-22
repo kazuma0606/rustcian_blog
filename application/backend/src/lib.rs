@@ -2,6 +2,7 @@ pub mod ai;
 pub mod analytics_writer;
 pub mod auth;
 pub mod blob;
+pub mod cloudflare;
 pub mod comment_store;
 pub mod config;
 pub mod notification;

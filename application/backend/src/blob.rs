@@ -131,6 +131,49 @@ impl AzuriteBlobAdapter {
         }
     }
 
+    pub async fn delete_blob(&self, blob_name: &str) -> Result<(), BlogError> {
+        let response = self.request_blob(Method::DELETE, blob_name, None).await?;
+        match response.status() {
+            StatusCode::ACCEPTED | StatusCode::OK => Ok(()),
+            StatusCode::NOT_FOUND => Ok(()),
+            status => Err(BlogError::Storage(format!(
+                "failed to delete blob {blob_name}: {status}"
+            ))),
+        }
+    }
+
+    pub async fn list_blobs(&self, prefix: &str) -> Result<Vec<BlobItem>, BlogError> {
+        let mut query = BTreeMap::new();
+        query.insert("restype".to_owned(), "container".to_owned());
+        query.insert("comp".to_owned(), "list".to_owned());
+        if !prefix.is_empty() {
+            query.insert("prefix".to_owned(), prefix.to_owned());
+        }
+        let response = self
+            .request(
+                Method::GET,
+                &format!("/{AZURITE_CONTAINER}"),
+                None,
+                Some(query),
+                true,
+            )
+            .await?;
+
+        if !response.status().is_success() {
+            return Err(BlogError::Storage(format!(
+                "failed to list blobs: {}",
+                response.status()
+            )));
+        }
+
+        let body = response
+            .text()
+            .await
+            .map_err(|e| BlogError::Storage(e.to_string()))?;
+
+        Ok(parse_blob_list_xml(&body))
+    }
+
     pub async fn create_container_if_needed(&self) -> Result<(), BlogError> {
         let mut query = BTreeMap::new();
         query.insert("restype".to_owned(), "container".to_owned());
@@ -248,6 +291,41 @@ impl AzuriteBlobAdapter {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct BlobItem {
+    pub name: String,
+    pub content_type: Option<String>,
+    pub last_modified: Option<String>,
+    pub size: Option<u64>,
+}
+
+/// Minimal XML parser for Azure Blob List response.
+/// Extracts blob names and properties without pulling in an XML crate.
+fn parse_blob_list_xml(xml: &str) -> Vec<BlobItem> {
+    let mut items = Vec::new();
+    for blob_block in xml.split("<Blob>").skip(1) {
+        let name = extract_xml_tag(blob_block, "Name").unwrap_or_default();
+        let content_type = extract_xml_tag(blob_block, "Content-Type");
+        let last_modified = extract_xml_tag(blob_block, "Last-Modified");
+        let size = extract_xml_tag(blob_block, "Content-Length").and_then(|v| v.parse().ok());
+        items.push(BlobItem {
+            name,
+            content_type,
+            last_modified,
+            size,
+        });
+    }
+    items
+}
+
+fn extract_xml_tag(xml: &str, tag: &str) -> Option<String> {
+    let open = format!("<{tag}>");
+    let close = format!("</{tag}>");
+    let start = xml.find(&open)? + open.len();
+    let end = xml[start..].find(&close)?;
+    Some(xml[start..start + end].to_owned())
+}
+
 fn build_authorization_header(
     method: &Method,
     endpoint_path: &str,
@@ -302,4 +380,145 @@ fn endpoint_path(blob_endpoint: &str) -> &str {
         .strip_prefix("http://127.0.0.1:10000")
         .or_else(|| blob_endpoint.strip_prefix("http://localhost:10000"))
         .unwrap_or("")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{AzuriteBlobAdapter, parse_blob_list_xml};
+
+    // ---------------------------------------------------------------------------
+    // Pure-function unit tests (always run)
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn parse_blob_list_xml_returns_empty_for_no_blobs() {
+        let xml = r#"<?xml version="1.0" encoding="utf-8"?>
+<EnumerationResults><Blobs></Blobs></EnumerationResults>"#;
+        assert!(parse_blob_list_xml(xml).is_empty());
+    }
+
+    #[test]
+    fn parse_blob_list_xml_extracts_name_and_size() {
+        let xml = r#"<?xml version="1.0" encoding="utf-8"?>
+<EnumerationResults>
+  <Blobs>
+    <Blob>
+      <Name>images/photo.jpg</Name>
+      <Properties>
+        <Content-Type>image/jpeg</Content-Type>
+        <Content-Length>12345</Content-Length>
+        <Last-Modified>Mon, 01 Jan 2026 00:00:00 GMT</Last-Modified>
+      </Properties>
+    </Blob>
+    <Blob>
+      <Name>images/logo.png</Name>
+      <Properties>
+        <Content-Type>image/png</Content-Type>
+        <Content-Length>512</Content-Length>
+        <Last-Modified>Tue, 02 Jan 2026 00:00:00 GMT</Last-Modified>
+      </Properties>
+    </Blob>
+  </Blobs>
+</EnumerationResults>"#;
+        let items = parse_blob_list_xml(xml);
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0].name, "images/photo.jpg");
+        assert_eq!(items[0].content_type.as_deref(), Some("image/jpeg"));
+        assert_eq!(items[0].size, Some(12345));
+        assert_eq!(items[1].name, "images/logo.png");
+        assert_eq!(items[1].size, Some(512));
+    }
+
+    #[test]
+    fn parse_blob_list_xml_handles_missing_optional_fields() {
+        let xml = r#"<EnumerationResults>
+  <Blobs>
+    <Blob><Name>bare.txt</Name><Properties></Properties></Blob>
+  </Blobs>
+</EnumerationResults>"#;
+        let items = parse_blob_list_xml(xml);
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].name, "bare.txt");
+        assert!(items[0].content_type.is_none());
+        assert!(items[0].size.is_none());
+    }
+
+    // ---------------------------------------------------------------------------
+    // Azurite integration tests (require RUN_AZURITE_TESTS=1)
+    // ---------------------------------------------------------------------------
+
+    fn azurite_adapter() -> AzuriteBlobAdapter {
+        AzuriteBlobAdapter::new("http://127.0.0.1:10000/devstoreaccount1".to_owned())
+    }
+
+    fn require_azurite() -> bool {
+        std::env::var("RUN_AZURITE_TESTS").ok().as_deref() == Some("1")
+    }
+
+    #[tokio::test]
+    async fn put_bytes_uploads_and_get_bytes_retrieves() {
+        let adapter = azurite_adapter();
+        let init = adapter.create_container_if_needed().await;
+        if !require_azurite() && init.is_err() {
+            return;
+        }
+        init.unwrap();
+
+        let blob_name = "test/put_bytes_test.txt";
+        let content = b"hello azurite blob".to_vec();
+        adapter
+            .put_bytes(blob_name, content.clone(), "text/plain")
+            .await
+            .unwrap();
+
+        let result = adapter.get_bytes(blob_name).await.unwrap();
+        assert!(result.is_some());
+        let (bytes, ct) = result.unwrap();
+        assert_eq!(bytes, content);
+        assert_eq!(ct.as_deref(), Some("text/plain"));
+
+        adapter.delete_blob(blob_name).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn list_blobs_returns_uploaded_blob() {
+        let adapter = azurite_adapter();
+        let init = adapter.create_container_if_needed().await;
+        if !require_azurite() && init.is_err() {
+            return;
+        }
+        init.unwrap();
+
+        let blob_name = "test/list_blobs_test.png";
+        adapter
+            .put_bytes(blob_name, vec![1, 2, 3], "image/png")
+            .await
+            .unwrap();
+
+        let items = adapter.list_blobs("test/").await.unwrap();
+        let found = items.iter().any(|i| i.name == blob_name);
+        assert!(found, "uploaded blob not found in list");
+
+        adapter.delete_blob(blob_name).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn delete_blob_removes_blob_from_list() {
+        let adapter = azurite_adapter();
+        let init = adapter.create_container_if_needed().await;
+        if !require_azurite() && init.is_err() {
+            return;
+        }
+        init.unwrap();
+
+        let blob_name = "test/delete_test.txt";
+        adapter
+            .put_bytes(blob_name, b"bye".to_vec(), "text/plain")
+            .await
+            .unwrap();
+        adapter.delete_blob(blob_name).await.unwrap();
+
+        let result = adapter.get_bytes(blob_name).await.unwrap();
+        assert!(result.is_none(), "blob should be gone after delete");
+    }
 }

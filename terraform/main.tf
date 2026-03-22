@@ -39,6 +39,7 @@ module "monitoring" {
   resource_group_name = azurerm_resource_group.main.name
   location            = azurerm_resource_group.main.location
   prefix              = "${var.prefix}-${var.environment}"
+  slack_webhook_url   = var.slack_webhook_url
 }
 
 module "keyvault" {

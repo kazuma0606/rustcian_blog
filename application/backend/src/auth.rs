@@ -5,6 +5,7 @@ use jsonwebtoken::{Algorithm, DecodingKey, Validation, decode, decode_header};
 use reqwest::Client;
 use rustacian_blog_core::{AdminAuthError, AdminAuthService, AdminIdentity};
 use serde::Deserialize;
+use sha2::{Digest, Sha256};
 use tokio::sync::RwLock;
 
 use crate::config::AppConfig;
@@ -89,6 +90,125 @@ impl EntraOidcAdminAuthService {
         *self.provider_state.write().await = Some(state.clone());
         Ok(state)
     }
+}
+
+/// PKCE parameters returned by `build_auth_redirect_url`.
+pub struct PkceParams {
+    /// The full Azure AD authorization URL to redirect the browser to.
+    pub auth_url: String,
+    /// The code_verifier — must be presented at the token endpoint.
+    /// We embed it in the `state` parameter so no server-side session is needed.
+    pub state: String,
+}
+
+/// Build the Azure AD PKCE authorization URL.
+/// The code_verifier is base64url-encoded and stored in `state` so that
+/// the callback handler can retrieve it without server-side session storage.
+pub fn build_auth_redirect_url(config: &AppConfig) -> Result<PkceParams, AdminAuthError> {
+    let tenant_id = config
+        .entra_tenant_id
+        .as_deref()
+        .ok_or(AdminAuthError::MissingConfiguration("ENTRA_TENANT_ID"))?;
+    let client_id = config
+        .entra_client_id
+        .as_deref()
+        .ok_or(AdminAuthError::MissingConfiguration("ENTRA_CLIENT_ID"))?;
+    let redirect_uri = config
+        .entra_redirect_uri
+        .as_deref()
+        .ok_or(AdminAuthError::MissingConfiguration("ENTRA_REDIRECT_URI"))?;
+
+    // Generate code_verifier from two UUIDs (32 random bytes → 43-char base64url)
+    let v1 = uuid::Uuid::new_v4();
+    let v2 = uuid::Uuid::new_v4();
+    let mut raw = Vec::with_capacity(32);
+    raw.extend_from_slice(v1.as_bytes());
+    raw.extend_from_slice(v2.as_bytes());
+    let code_verifier = URL_SAFE_NO_PAD.encode(&raw);
+
+    // code_challenge = BASE64URL(SHA256(code_verifier))
+    let mut hasher = Sha256::new();
+    hasher.update(code_verifier.as_bytes());
+    let code_challenge = URL_SAFE_NO_PAD.encode(hasher.finalize());
+
+    // Embed verifier in state (base64url) — stateless PKCE for server-side apps
+    let state = URL_SAFE_NO_PAD.encode(code_verifier.as_bytes());
+
+    let auth_url = format!(
+        "https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/authorize\
+         ?client_id={client_id}\
+         &response_type=code\
+         &redirect_uri={encoded_redirect}\
+         &response_mode=query\
+         &scope=openid+profile+email\
+         &code_challenge={code_challenge}\
+         &code_challenge_method=S256\
+         &state={state}",
+        encoded_redirect = urlencoding::encode(redirect_uri),
+    );
+
+    Ok(PkceParams { auth_url, state })
+}
+
+/// Exchange the authorization code for an id_token using PKCE.
+/// `state` is the value returned by `build_auth_redirect_url`, which
+/// encodes the code_verifier as base64url.
+pub async fn exchange_code_for_token(
+    config: &AppConfig,
+    client: &Client,
+    code: &str,
+    state: &str,
+) -> Result<String, AdminAuthError> {
+    let tenant_id = config
+        .entra_tenant_id
+        .as_deref()
+        .ok_or(AdminAuthError::MissingConfiguration("ENTRA_TENANT_ID"))?;
+    let client_id = config
+        .entra_client_id
+        .as_deref()
+        .ok_or(AdminAuthError::MissingConfiguration("ENTRA_CLIENT_ID"))?;
+    let redirect_uri = config
+        .entra_redirect_uri
+        .as_deref()
+        .ok_or(AdminAuthError::MissingConfiguration("ENTRA_REDIRECT_URI"))?;
+
+    let verifier_bytes = URL_SAFE_NO_PAD
+        .decode(state)
+        .map_err(|_| AdminAuthError::InvalidToken("invalid state parameter"))?;
+    let code_verifier = String::from_utf8(verifier_bytes)
+        .map_err(|_| AdminAuthError::InvalidToken("state is not valid utf-8"))?;
+
+    let token_url = format!("https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token");
+    let response = client
+        .post(&token_url)
+        .form(&[
+            ("client_id", client_id),
+            ("code", code),
+            ("redirect_uri", redirect_uri),
+            ("grant_type", "authorization_code"),
+            ("code_verifier", code_verifier.as_str()),
+        ])
+        .send()
+        .await
+        .map_err(|_| AdminAuthError::ProviderUnavailable("token request failed"))?;
+
+    if !response.status().is_success() {
+        return Err(AdminAuthError::ProviderUnavailable(
+            "token endpoint returned non-success status",
+        ));
+    }
+
+    let body: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|_| AdminAuthError::ProviderUnavailable("token response is not valid json"))?;
+
+    body["id_token"]
+        .as_str()
+        .map(str::to_owned)
+        .ok_or(AdminAuthError::ProviderUnavailable(
+            "no id_token in token response",
+        ))
 }
 
 pub fn build_admin_auth_service(config: &AppConfig) -> Arc<dyn AdminAuthService> {
@@ -363,6 +483,9 @@ GcZ0izY/30012ajdHY+/QK5lsMoxTnn0skdS+spLxaS5ZEO4qvPVb8RAoCkWMMal
             entra_oidc_metadata_url: None,
             entra_admin_group_id: Some("group-123".to_owned()),
             entra_admin_user_oid: None,
+            entra_redirect_uri: Some("http://localhost:8080/admin/callback".to_owned()),
+            cloudflare_zone_id: None,
+            cloudflare_api_token: None,
             static_output_dir: "./dist".into(),
             static_publish_backend: "local".to_owned(),
             static_publish_prefix: "site".to_owned(),

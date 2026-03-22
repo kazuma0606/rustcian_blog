@@ -1,16 +1,20 @@
+use crate::auth::{build_auth_redirect_url, exchange_code_for_token};
 use crate::state::AppState;
+use actix_multipart::Multipart;
 use actix_web::{
-    HttpRequest, HttpResponse, Result, cookie::Cookie, get, http::header::ContentType, web,
+    HttpRequest, HttpResponse, Result, cookie::Cookie, delete, get, http::header::ContentType,
+    post, web,
 };
+use futures_util::TryStreamExt;
 use rustacian_blog_core::{
     AdminAuthError, AiGenerationScope, BlogError, Comment, CommentStatus, ContactMessage, Post,
     PostSummary, PostVisibility, SearchQuery,
 };
 use rustacian_blog_frontend::{
-    CommentView, GeneratedMetadataView, SearchResultView, render_admin_comments,
-    render_admin_dashboard, render_admin_post_detail, render_admin_static_panel,
-    render_comment_list, render_contact_page, render_post_page, render_posts_page,
-    render_search_page,
+    CommentView, GeneratedMetadataView, ImageView, SearchResultView, render_admin_comments,
+    render_admin_dashboard, render_admin_image_gallery, render_admin_post_detail,
+    render_admin_static_panel, render_comment_list, render_contact_page, render_login_page,
+    render_post_page, render_posts_page, render_search_page,
 };
 use std::{fs, path::Path};
 
@@ -40,7 +44,9 @@ fn public_routes(cfg: &mut web::ServiceConfig) {
 }
 
 fn admin_routes(cfg: &mut web::ServiceConfig) {
-    cfg.service(admin_home)
+    cfg.service(admin_login)
+        .service(admin_callback)
+        .service(admin_home)
         .service(admin_preview_placeholder)
         .service(admin_post_detail)
         .service(admin_static_panel)
@@ -48,7 +54,12 @@ fn admin_routes(cfg: &mut web::ServiceConfig) {
         .service(regenerate_static_site)
         .service(admin_comments)
         .service(approve_comment)
-        .service(reject_comment);
+        .service(reject_comment)
+        .service(admin_image_gallery)
+        .service(admin_list_images)
+        .service(admin_upload_image)
+        .service(admin_delete_image)
+        .service(admin_set_hero);
 }
 
 #[get("/health")]
@@ -308,10 +319,24 @@ async fn regenerate_static_site(
         })
         .await;
 
+    // Purge Cloudflare cache after successful publish (best-effort)
+    let cf_purged = if let Some(ref cf) = data.cloudflare {
+        match cf.purge_all().await {
+            Ok(()) => true,
+            Err(e) => {
+                eprintln!("cloudflare purge failed: {e}");
+                false
+            }
+        }
+    } else {
+        false
+    };
+
     Ok(HttpResponse::Ok().json(serde_json::json!({
         "status": "ok",
         "pages": page_count,
         "assets": build.assets.len(),
+        "cloudflare_purged": cf_purged,
         "target": match data.config.static_publish_backend.as_str() {
             "azurite" => format!("azurite:{}", data.config.static_publish_prefix),
             _ => format!("local:{}", data.config.static_output_dir.display()),
@@ -684,9 +709,291 @@ fn page_app_error(error: BlogError) -> actix_web::Error {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Admin: Entra PKCE login / callback
+// ---------------------------------------------------------------------------
+
+#[get("/login")]
+async fn admin_login(request: HttpRequest, data: web::Data<AppState>) -> Result<HttpResponse> {
+    // If already authenticated, skip login
+    if authenticate_admin(&request, &data, "admin_login")
+        .await
+        .is_ok()
+    {
+        return Ok(HttpResponse::Found()
+            .insert_header(("Location", "/admin"))
+            .finish());
+    }
+
+    if data.config.admin_auth_mode != "entra" && data.config.admin_auth_mode != "entra-oidc" {
+        return Ok(html_response(render_login_page(Some(
+            "管理者認証が設定されていません",
+        ))));
+    }
+
+    match build_auth_redirect_url(&data.config) {
+        Ok(pkce) => Ok(HttpResponse::Found()
+            .insert_header(("Location", pkce.auth_url.as_str()))
+            .finish()),
+        Err(_) => Ok(html_response(render_login_page(Some(
+            "Entra 設定が不足しています (ENTRA_TENANT_ID / ENTRA_CLIENT_ID / ENTRA_REDIRECT_URI)",
+        )))),
+    }
+}
+
+#[derive(serde::Deserialize)]
+struct CallbackQuery {
+    code: Option<String>,
+    state: Option<String>,
+    error: Option<String>,
+    error_description: Option<String>,
+}
+
+#[get("/callback")]
+async fn admin_callback(
+    data: web::Data<AppState>,
+    query: web::Query<CallbackQuery>,
+) -> Result<HttpResponse> {
+    if let Some(ref err) = query.error {
+        let description = query.error_description.as_deref().unwrap_or(err.as_str());
+        return Ok(html_response(render_login_page(Some(description))));
+    }
+
+    let code = query
+        .code
+        .as_deref()
+        .ok_or_else(|| actix_web::error::ErrorBadRequest("missing code parameter"))?;
+    let state = query
+        .state
+        .as_deref()
+        .ok_or_else(|| actix_web::error::ErrorBadRequest("missing state parameter"))?;
+
+    let id_token = exchange_code_for_token(&data.config, &data.http_client, code, state)
+        .await
+        .map_err(|e| {
+            actix_web::error::ErrorUnauthorized(format!("token exchange failed: {e:?}"))
+        })?;
+
+    let cookie = Cookie::build("admin_session", id_token)
+        .path("/admin")
+        .http_only(true)
+        .secure(data.config.app_env != "local")
+        .max_age(actix_web::cookie::time::Duration::hours(8))
+        .finish();
+
+    Ok(HttpResponse::Found()
+        .cookie(cookie)
+        .insert_header(("Location", "/admin"))
+        .finish())
+}
+
+// ---------------------------------------------------------------------------
+// Admin: Image management
+// ---------------------------------------------------------------------------
+
+#[get("/images")]
+async fn admin_image_gallery(
+    request: HttpRequest,
+    data: web::Data<AppState>,
+) -> Result<HttpResponse> {
+    authenticate_admin(&request, &data, "admin_image_gallery")
+        .await
+        .map_err(admin_auth_error)?;
+    let images = if let Some(blob) = data.image_blob.as_ref() {
+        blob.list_blobs("images/")
+            .await
+            .map_err(|e| actix_web::error::ErrorInternalServerError(e.to_string()))?
+            .into_iter()
+            .map(|item| {
+                let name = item
+                    .name
+                    .strip_prefix("images/")
+                    .unwrap_or(&item.name)
+                    .to_owned();
+                ImageView {
+                    url: format!("/images/{name}"),
+                    name,
+                    content_type: item.content_type,
+                    last_modified: item.last_modified,
+                    size: item.size,
+                }
+            })
+            .collect()
+    } else {
+        vec![]
+    };
+    Ok(html_response(render_admin_image_gallery(images)))
+}
+
+#[get("/images/list")]
+async fn admin_list_images(
+    request: HttpRequest,
+    data: web::Data<AppState>,
+) -> Result<HttpResponse> {
+    authenticate_admin(&request, &data, "admin_list_images")
+        .await
+        .map_err(admin_auth_error)?;
+    let blob = data
+        .image_blob
+        .as_ref()
+        .ok_or_else(|| actix_web::error::ErrorServiceUnavailable("blob storage not configured"))?;
+    let items = blob
+        .list_blobs("images/")
+        .await
+        .map_err(|e| actix_web::error::ErrorInternalServerError(e.to_string()))?;
+    let json: Vec<serde_json::Value> = items
+        .into_iter()
+        .map(|item| {
+            let filename = item
+                .name
+                .strip_prefix("images/")
+                .unwrap_or(&item.name)
+                .to_owned();
+            serde_json::json!({
+                "name": filename,
+                "url": format!("/images/{filename}"),
+                "content_type": item.content_type,
+                "last_modified": item.last_modified,
+                "size": item.size,
+            })
+        })
+        .collect();
+    Ok(HttpResponse::Ok().json(json))
+}
+
+#[post("/images")]
+async fn admin_upload_image(
+    request: HttpRequest,
+    data: web::Data<AppState>,
+    mut payload: Multipart,
+) -> Result<HttpResponse> {
+    authenticate_admin(&request, &data, "admin_upload_image")
+        .await
+        .map_err(admin_auth_error)?;
+    let blob = data
+        .image_blob
+        .as_ref()
+        .ok_or_else(|| actix_web::error::ErrorServiceUnavailable("blob storage not configured"))?;
+
+    if let Some(mut field) = payload
+        .try_next()
+        .await
+        .map_err(|e| actix_web::error::ErrorBadRequest(e.to_string()))?
+    {
+        let content_type = field
+            .content_type()
+            .map(|m| m.to_string())
+            .unwrap_or_else(|| "application/octet-stream".to_owned());
+
+        let filename = field
+            .content_disposition()
+            .and_then(|cd| cd.get_filename())
+            .unwrap_or("upload")
+            .to_owned();
+
+        // Restrict to image MIME types
+        if !content_type.starts_with("image/") {
+            return Err(actix_web::error::ErrorUnsupportedMediaType(
+                "only image/* content types are accepted",
+            ));
+        }
+
+        let mut bytes = Vec::new();
+        while let Some(chunk) = field
+            .try_next()
+            .await
+            .map_err(|e| actix_web::error::ErrorBadRequest(e.to_string()))?
+        {
+            bytes.extend_from_slice(&chunk);
+        }
+
+        let blob_name = format!("images/{filename}");
+        blob.put_bytes(&blob_name, bytes, &content_type)
+            .await
+            .map_err(|e| actix_web::error::ErrorInternalServerError(e.to_string()))?;
+
+        return Ok(HttpResponse::Created().json(serde_json::json!({
+            "name": filename,
+            "url": format!("/images/{filename}"),
+        })));
+    }
+
+    Err(actix_web::error::ErrorBadRequest(
+        "no file field in multipart body",
+    ))
+}
+
+#[delete("/images/{name}")]
+async fn admin_delete_image(
+    request: HttpRequest,
+    data: web::Data<AppState>,
+    path: web::Path<String>,
+) -> Result<HttpResponse> {
+    authenticate_admin(&request, &data, "admin_delete_image")
+        .await
+        .map_err(admin_auth_error)?;
+    let blob = data
+        .image_blob
+        .as_ref()
+        .ok_or_else(|| actix_web::error::ErrorServiceUnavailable("blob storage not configured"))?;
+    let filename = path.into_inner();
+    blob.delete_blob(&format!("images/{filename}"))
+        .await
+        .map_err(|e| actix_web::error::ErrorInternalServerError(e.to_string()))?;
+    Ok(HttpResponse::NoContent().finish())
+}
+
+#[derive(serde::Deserialize)]
+struct SetHeroBody {
+    image: String,
+}
+
+#[post("/posts/{slug}/hero")]
+async fn admin_set_hero(
+    request: HttpRequest,
+    data: web::Data<AppState>,
+    path: web::Path<String>,
+    body: web::Json<SetHeroBody>,
+) -> Result<HttpResponse> {
+    authenticate_admin(&request, &data, "admin_set_hero")
+        .await
+        .map_err(admin_auth_error)?;
+    let slug = path.into_inner();
+    let meta_path = data
+        .config
+        .content_root
+        .join("posts")
+        .join(&slug)
+        .join("meta.yml");
+
+    if !meta_path.exists() {
+        return Err(actix_web::error::ErrorNotFound("post not found"));
+    }
+
+    let raw = fs::read_to_string(&meta_path)
+        .map_err(|e| actix_web::error::ErrorInternalServerError(e.to_string()))?;
+    let mut value: serde_yaml::Value = serde_yaml::from_str(&raw)
+        .map_err(|e| actix_web::error::ErrorInternalServerError(e.to_string()))?;
+
+    if let serde_yaml::Value::Mapping(ref mut map) = value {
+        map.insert(
+            serde_yaml::Value::String("hero_image".to_owned()),
+            serde_yaml::Value::String(body.image.clone()),
+        );
+    }
+
+    let updated = serde_yaml::to_string(&value)
+        .map_err(|e| actix_web::error::ErrorInternalServerError(e.to_string()))?;
+    fs::write(&meta_path, updated)
+        .map_err(|e| actix_web::error::ErrorInternalServerError(e.to_string()))?;
+
+    Ok(HttpResponse::Ok().json(serde_json::json!({"slug": slug, "hero_image": body.image})))
+}
+
 fn admin_auth_error(error: AdminAuthError) -> actix_web::Error {
     match error {
         AdminAuthError::MissingBearerToken | AdminAuthError::InvalidToken(_) => {
+            // Return a redirect to the login page — actix wraps it in an error response
             actix_web::error::ErrorUnauthorized("admin authentication required")
         }
         AdminAuthError::Forbidden(_) => actix_web::error::ErrorForbidden("admin access denied"),
@@ -722,6 +1029,7 @@ fn map_summaries(posts: Vec<PostSummary>) -> Vec<rustacian_blog_frontend::PostSu
                     .map(|value| resolve_asset_url(&value, &post.slug)),
                 toc: post.toc,
                 math: post.math,
+                summary_ai: post.summary_ai,
                 status: match post.status {
                     rustacian_blog_core::PostStatus::Published => "published".to_owned(),
                     rustacian_blog_core::PostStatus::Draft => "draft".to_owned(),
@@ -1000,6 +1308,8 @@ mod tests {
             search_index: Arc::new(TantivySearchIndex::new()),
             image_blob: None,
             analytics: None,
+            cloudflare: None,
+            http_client: reqwest::Client::new(),
             generate_ai_metadata: None,
             publish_static_site: Some(PublishStaticSiteUseCase::new(
                 Arc::new(MockStaticSiteGenerator),
@@ -1024,6 +1334,9 @@ mod tests {
                 entra_oidc_metadata_url: None,
                 entra_admin_group_id: None,
                 entra_admin_user_oid: None,
+                entra_redirect_uri: None,
+                cloudflare_zone_id: None,
+                cloudflare_api_token: None,
                 static_output_dir: "./dist".into(),
                 static_publish_backend: "local".to_owned(),
                 static_publish_prefix: "site".to_owned(),

@@ -7,6 +7,7 @@ use rustacian_blog_backend::{
     analytics_writer::AnalyticsWriter,
     auth::build_admin_auth_service,
     blob::AzuriteBlobAdapter,
+    cloudflare::build_cloudflare_cache_client,
     comment_store::{
         AzuriteCommentRepository, AzuriteContactRepository, build_comment_repository,
         build_contact_repository,
@@ -111,6 +112,12 @@ async fn main() -> std::io::Result<()> {
             .azurite_table_endpoint
             .clone()
             .map(|ep| Arc::new(AnalyticsWriter::new(ep))),
+        cloudflare: build_cloudflare_cache_client(
+            &reqwest::Client::new(),
+            config.cloudflare_zone_id.as_deref(),
+            config.cloudflare_api_token.as_deref(),
+        ),
+        http_client: reqwest::Client::new(),
         config: config.clone(),
     };
     let bind_address = config.bind_address();
