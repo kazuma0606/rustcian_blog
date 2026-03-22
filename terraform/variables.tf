@@ -62,6 +62,12 @@ variable "entra_admin_group_id" {
   default     = ""
 }
 
+variable "entra_redirect_uri" {
+  description = "OAuth2 redirect URI registered in the Entra ID app registration (e.g. https://rustacian-blog.com/admin/callback)."
+  type        = string
+  default     = ""
+}
+
 variable "openai_model_capacity" {
   description = "Token-per-minute capacity (thousands) for the OpenAI deployment."
   type        = number

@@ -556,6 +556,34 @@ pub fn render_admin_static_panel() -> String {
     admin_document("静的サイト管理", &body)
 }
 
+pub fn render_login_page(error: Option<&str>) -> String {
+    let error_html = match error {
+        Some(msg) => format!(
+            r#"<div class="card" style="border-left:3px solid #c0392b;padding:12px 16px;margin-bottom:20px;">
+  <span style="color:#c0392b;font-size:14px;">{}</span>
+</div>"#,
+            esc(msg)
+        ),
+        None => String::new(),
+    };
+    let body = format!(
+        r#"<div class="shell" style="max-width:420px;margin:80px auto;">
+<p class="eyebrow">Admin</p>
+<h1 style="margin:4px 0 24px;">ログイン</h1>
+{error_html}
+<div class="card">
+  <p style="color:var(--muted);font-size:14px;margin:0 0 20px;">
+    Microsoft アカウント（Entra ID）でサインインしてください。
+  </p>
+  <a href="/admin/login" class="btn btn-primary" style="display:inline-block;text-decoration:none;">
+    Microsoft でサインイン
+  </a>
+</div>
+</div>"#,
+    );
+    admin_document("ログイン", &body)
+}
+
 pub fn render_admin_image_gallery(images: Vec<ImageView>) -> String {
     let cards: String = images
         .iter()

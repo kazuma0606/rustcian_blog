@@ -25,6 +25,7 @@ pub struct AppConfig {
     pub entra_oidc_metadata_url: Option<String>,
     pub entra_admin_group_id: Option<String>,
     pub entra_admin_user_oid: Option<String>,
+    pub entra_redirect_uri: Option<String>,
     pub static_output_dir: PathBuf,
     pub static_publish_backend: String,
     pub static_publish_prefix: String,
@@ -79,6 +80,7 @@ impl AppConfig {
             entra_oidc_metadata_url: env::var("ENTRA_OIDC_METADATA_URL").ok(),
             entra_admin_group_id: env::var("ENTRA_ADMIN_GROUP_ID").ok(),
             entra_admin_user_oid: env::var("ENTRA_ADMIN_USER_OID").ok(),
+            entra_redirect_uri: env::var("ENTRA_REDIRECT_URI").ok(),
             static_output_dir: resolve_workspace_path(
                 &workspace_root,
                 env::var("STATIC_OUTPUT_DIR").unwrap_or_else(|_| "./dist".to_owned()),

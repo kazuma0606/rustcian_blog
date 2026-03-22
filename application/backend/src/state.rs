@@ -11,6 +11,7 @@ use crate::{
     analytics_writer::AnalyticsWriter, blob::AzuriteBlobAdapter, config::AppConfig,
     observability::ObservabilitySink, search::TantivySearchIndex,
 };
+use reqwest::Client;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -26,5 +27,6 @@ pub struct AppState {
     pub search_index: Arc<TantivySearchIndex>,
     pub image_blob: Option<AzuriteBlobAdapter>,
     pub analytics: Option<Arc<AnalyticsWriter>>,
+    pub http_client: Client,
     pub config: AppConfig,
 }

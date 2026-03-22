@@ -1,3 +1,4 @@
+use crate::auth::{build_auth_redirect_url, exchange_code_for_token};
 use crate::state::AppState;
 use actix_multipart::Multipart;
 use actix_web::{
@@ -12,8 +13,8 @@ use rustacian_blog_core::{
 use rustacian_blog_frontend::{
     CommentView, GeneratedMetadataView, ImageView, SearchResultView, render_admin_comments,
     render_admin_dashboard, render_admin_image_gallery, render_admin_post_detail,
-    render_admin_static_panel, render_comment_list, render_contact_page, render_post_page,
-    render_posts_page, render_search_page,
+    render_admin_static_panel, render_comment_list, render_contact_page, render_login_page,
+    render_post_page, render_posts_page, render_search_page,
 };
 use std::{fs, path::Path};
 
@@ -43,7 +44,9 @@ fn public_routes(cfg: &mut web::ServiceConfig) {
 }
 
 fn admin_routes(cfg: &mut web::ServiceConfig) {
-    cfg.service(admin_home)
+    cfg.service(admin_login)
+        .service(admin_callback)
+        .service(admin_home)
         .service(admin_preview_placeholder)
         .service(admin_post_detail)
         .service(admin_static_panel)
@@ -693,6 +696,84 @@ fn page_app_error(error: BlogError) -> actix_web::Error {
 }
 
 // ---------------------------------------------------------------------------
+// Admin: Entra PKCE login / callback
+// ---------------------------------------------------------------------------
+
+#[get("/login")]
+async fn admin_login(request: HttpRequest, data: web::Data<AppState>) -> Result<HttpResponse> {
+    // If already authenticated, skip login
+    if authenticate_admin(&request, &data, "admin_login")
+        .await
+        .is_ok()
+    {
+        return Ok(HttpResponse::Found()
+            .insert_header(("Location", "/admin"))
+            .finish());
+    }
+
+    if data.config.admin_auth_mode != "entra" && data.config.admin_auth_mode != "entra-oidc" {
+        return Ok(html_response(render_login_page(Some(
+            "管理者認証が設定されていません",
+        ))));
+    }
+
+    match build_auth_redirect_url(&data.config) {
+        Ok(pkce) => Ok(HttpResponse::Found()
+            .insert_header(("Location", pkce.auth_url.as_str()))
+            .finish()),
+        Err(_) => Ok(html_response(render_login_page(Some(
+            "Entra 設定が不足しています (ENTRA_TENANT_ID / ENTRA_CLIENT_ID / ENTRA_REDIRECT_URI)",
+        )))),
+    }
+}
+
+#[derive(serde::Deserialize)]
+struct CallbackQuery {
+    code: Option<String>,
+    state: Option<String>,
+    error: Option<String>,
+    error_description: Option<String>,
+}
+
+#[get("/callback")]
+async fn admin_callback(
+    data: web::Data<AppState>,
+    query: web::Query<CallbackQuery>,
+) -> Result<HttpResponse> {
+    if let Some(ref err) = query.error {
+        let description = query.error_description.as_deref().unwrap_or(err.as_str());
+        return Ok(html_response(render_login_page(Some(description))));
+    }
+
+    let code = query
+        .code
+        .as_deref()
+        .ok_or_else(|| actix_web::error::ErrorBadRequest("missing code parameter"))?;
+    let state = query
+        .state
+        .as_deref()
+        .ok_or_else(|| actix_web::error::ErrorBadRequest("missing state parameter"))?;
+
+    let id_token = exchange_code_for_token(&data.config, &data.http_client, code, state)
+        .await
+        .map_err(|e| {
+            actix_web::error::ErrorUnauthorized(format!("token exchange failed: {e:?}"))
+        })?;
+
+    let cookie = Cookie::build("admin_session", id_token)
+        .path("/admin")
+        .http_only(true)
+        .secure(data.config.app_env != "local")
+        .max_age(actix_web::cookie::time::Duration::hours(8))
+        .finish();
+
+    Ok(HttpResponse::Found()
+        .cookie(cookie)
+        .insert_header(("Location", "/admin"))
+        .finish())
+}
+
+// ---------------------------------------------------------------------------
 // Admin: Image management
 // ---------------------------------------------------------------------------
 
@@ -898,6 +979,7 @@ async fn admin_set_hero(
 fn admin_auth_error(error: AdminAuthError) -> actix_web::Error {
     match error {
         AdminAuthError::MissingBearerToken | AdminAuthError::InvalidToken(_) => {
+            // Return a redirect to the login page — actix wraps it in an error response
             actix_web::error::ErrorUnauthorized("admin authentication required")
         }
         AdminAuthError::Forbidden(_) => actix_web::error::ErrorForbidden("admin access denied"),
@@ -1212,6 +1294,7 @@ mod tests {
             search_index: Arc::new(TantivySearchIndex::new()),
             image_blob: None,
             analytics: None,
+            http_client: reqwest::Client::new(),
             generate_ai_metadata: None,
             publish_static_site: Some(PublishStaticSiteUseCase::new(
                 Arc::new(MockStaticSiteGenerator),
@@ -1236,6 +1319,7 @@ mod tests {
                 entra_oidc_metadata_url: None,
                 entra_admin_group_id: None,
                 entra_admin_user_oid: None,
+                entra_redirect_uri: None,
                 static_output_dir: "./dist".into(),
                 static_publish_backend: "local".to_owned(),
                 static_publish_prefix: "site".to_owned(),

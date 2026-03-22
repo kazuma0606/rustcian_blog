@@ -29,15 +29,15 @@
 
 ## Phase 3: Entra ID PKCE ログインページ（#2）
 
-- [ ] **3-1** `application/backend/src/config.rs` — `entra_redirect_uri: Option<String>` を追加
-- [ ] **3-2** `application/backend/src/auth.rs` — PKCE verifier を `state` に埋め込む `build_auth_redirect_url()` を実装
-- [ ] **3-3** `application/backend/src/auth.rs` — `exchange_code_for_token(code, state, verifier)` を実装
-- [ ] **3-4** `application/backend/src/presentation.rs` — `GET /admin/login` ルートを追加（Azure AD 認可 URL にリダイレクト）
-- [ ] **3-5** `application/backend/src/presentation.rs` — `GET /admin/callback` ルートを追加（code → token 交換 → Cookie 発行 → リダイレクト）
-- [ ] **3-6** `application/backend/src/presentation.rs` — Cookie から JWT を読む `extract_admin_from_cookie()` ヘルパーを追加（Bearer ヘッダーも引き続きサポート）
-- [ ] **3-7** `application/frontend/src/lib.rs` — `render_login_page(error: Option<&str>)` を追加
-- [ ] **3-8** `terraform/variables.tf` — `entra_redirect_uri` 変数を追加
-- [ ] **3-9** `.env.local.example` に `ENTRA_REDIRECT_URI` を追記
+- [x] **3-1** `application/backend/src/config.rs` — `entra_redirect_uri: Option<String>` を追加
+- [x] **3-2** `application/backend/src/auth.rs` — PKCE verifier を `state` に埋め込む `build_auth_redirect_url()` を実装
+- [x] **3-3** `application/backend/src/auth.rs` — `exchange_code_for_token(code, state, verifier)` を実装
+- [x] **3-4** `application/backend/src/presentation.rs` — `GET /admin/login` ルートを追加（Azure AD 認可 URL にリダイレクト）
+- [x] **3-5** `application/backend/src/presentation.rs` — `GET /admin/callback` ルートを追加（code → token 交換 → Cookie 発行 → リダイレクト）
+- [x] **3-6** `application/backend/src/presentation.rs` — Cookie から JWT を読む（既存の `authenticate_admin` が `admin_session` Cookie を読む実装済み）
+- [x] **3-7** `application/frontend/src/lib.rs` — `render_login_page(error: Option<&str>)` を追加
+- [x] **3-8** `terraform/variables.tf` — `entra_redirect_uri` 変数を追加
+- [x] **3-9** `.env.local.example` に `ENTRA_REDIRECT_URI` を追記
 - [ ] **3-10** ログイン → コールバック → Cookie 認証の E2E テストを追加
 
 ---

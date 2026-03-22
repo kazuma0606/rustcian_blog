@@ -111,6 +111,7 @@ async fn main() -> std::io::Result<()> {
             .azurite_table_endpoint
             .clone()
             .map(|ep| Arc::new(AnalyticsWriter::new(ep))),
+        http_client: reqwest::Client::new(),
         config: config.clone(),
     };
     let bind_address = config.bind_address();
