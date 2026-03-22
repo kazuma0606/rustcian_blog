@@ -448,7 +448,9 @@ async fn search_page(query: web::Query<SearchQuery>, data: web::Data<AppState>) 
             })
             .collect()
     };
-    if !q.is_empty() && let Some(analytics) = &data.analytics {
+    if !q.is_empty()
+        && let Some(analytics) = &data.analytics
+    {
         analytics.record_search(q.to_owned(), results.len());
     }
     html_response(render_search_page(q, results))
