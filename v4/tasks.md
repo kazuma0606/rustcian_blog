@@ -61,9 +61,9 @@
 - [x] `POST /admin/ai/{slug}/metadata` 完了後に `AiMetadataGenerated` を emit する
 
 #### 3.3.6 content repo への PostPublished 通知追加
-- [ ] `rustcian_blog_content/.github/workflows/build.yml` に Slack 通知ステップを追加する
+- [x] `rustcian_blog_content/.github/workflows/build.yml` に Slack 通知ステップを追加する
   - ビルド成功時に `SLACK_WEBHOOK_URL` へ curl で POST
-- [ ] `SLACK_WEBHOOK_URL` を content repo の Secrets に登録する
+- [x] `SLACK_WEBHOOK_URL` を content repo の Secrets に登録する
 
 #### 3.3.7 テスト
 - [x] `NoopNotificationSink` で既存テストが引き続き通ることを確認する（61 tests pass）
