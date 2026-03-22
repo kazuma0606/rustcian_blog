@@ -8,7 +8,10 @@ use rustacian_blog_core::{
 use rustacian_blog_core::{CommentRepository, ContactRepository, NotificationSink};
 
 use crate::{
-    blob::AzuriteBlobAdapter, config::AppConfig, observability::ObservabilitySink,
+    analytics_writer::AnalyticsWriter,
+    blob::AzuriteBlobAdapter,
+    config::AppConfig,
+    observability::ObservabilitySink,
     search::TantivySearchIndex,
 };
 
@@ -25,5 +28,6 @@ pub struct AppState {
     pub contact_repo: Arc<dyn ContactRepository>,
     pub search_index: Arc<TantivySearchIndex>,
     pub image_blob: Option<AzuriteBlobAdapter>,
+    pub analytics: Option<Arc<AnalyticsWriter>>,
     pub config: AppConfig,
 }

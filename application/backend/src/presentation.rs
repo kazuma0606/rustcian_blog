@@ -109,13 +109,22 @@ async fn index_page(data: web::Data<AppState>) -> Result<HttpResponse> {
 }
 
 #[get("/p/{slug}")]
-async fn post_page(path: web::Path<String>, data: web::Data<AppState>) -> Result<HttpResponse> {
+async fn post_page(
+    request: HttpRequest,
+    path: web::Path<String>,
+    data: web::Data<AppState>,
+) -> Result<HttpResponse> {
     let slug = path.into_inner();
     let post = data.get_post.execute(&slug).await.map_err(page_app_error)?;
     data.observability.emit(AppEvent::PublicRequestServed {
         route: "post_page",
-        slug: Some(slug),
+        slug: Some(slug.clone()),
     });
+    if let Some(analytics) = &data.analytics {
+        let ip = peer_ip(&request);
+        analytics.record_page_view(slug.clone(), ip.clone());
+        analytics.record_session_step(slug, ip);
+    }
 
     Ok(html_response(render_post_page(map_post(post))))
 }
@@ -423,7 +432,7 @@ async fn post_contact(
 #[get("/search")]
 async fn search_page(query: web::Query<SearchQuery>, data: web::Data<AppState>) -> HttpResponse {
     let q = query.q.trim();
-    let results = if q.is_empty() {
+    let results: Vec<SearchResultView> = if q.is_empty() {
         Vec::new()
     } else {
         data.search_index
@@ -439,6 +448,11 @@ async fn search_page(query: web::Query<SearchQuery>, data: web::Data<AppState>) 
             })
             .collect()
     };
+    if !q.is_empty() {
+        if let Some(analytics) = &data.analytics {
+            analytics.record_search(q.to_owned(), results.len());
+        }
+    }
     html_response(render_search_page(q, results))
 }
 
@@ -605,6 +619,22 @@ async fn authenticate_admin(
         },
     });
     result
+}
+
+/// Extract the peer IP address from the request, preferring X-Forwarded-For.
+fn peer_ip(request: &HttpRequest) -> String {
+    request
+        .headers()
+        .get("X-Forwarded-For")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.split(',').next())
+        .map(|s| s.trim().to_owned())
+        .or_else(|| {
+            request
+                .peer_addr()
+                .map(|addr| addr.ip().to_string())
+        })
+        .unwrap_or_else(|| "unknown".to_owned())
 }
 
 fn html_response(body: String) -> HttpResponse {
@@ -973,6 +1003,7 @@ mod tests {
             contact_repo: Arc::new(MockContactRepository),
             search_index: Arc::new(TantivySearchIndex::new()),
             image_blob: None,
+            analytics: None,
             generate_ai_metadata: None,
             publish_static_site: Some(PublishStaticSiteUseCase::new(
                 Arc::new(MockStaticSiteGenerator),
