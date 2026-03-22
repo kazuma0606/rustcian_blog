@@ -287,6 +287,7 @@ fn map_summaries(posts: Vec<rustacian_blog_core::PostSummary>) -> Vec<PostSummar
                 .map(|value| resolve_asset_url(&value, &post.slug)),
             toc: post.toc,
             math: post.math,
+            summary_ai: post.summary_ai,
             status: match post.status {
                 rustacian_blog_core::PostStatus::Published => "published".to_owned(),
                 rustacian_blog_core::PostStatus::Draft => "draft".to_owned(),

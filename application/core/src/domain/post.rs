@@ -126,6 +126,8 @@ pub struct PostSummary {
     pub status: PostStatus,
     pub toc: bool,
     pub math: bool,
+    #[serde(default)]
+    pub summary_ai: Option<String>,
 }
 
 impl Post {
@@ -189,6 +191,7 @@ impl Post {
             status: self.status,
             toc: self.toc,
             math: self.math,
+            summary_ai: self.summary_ai.clone(),
         }
     }
 }

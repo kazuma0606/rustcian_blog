@@ -64,6 +64,8 @@ pub struct PostSummaryView {
     pub hero_image: Option<String>,
     pub toc: bool,
     pub math: bool,
+    #[serde(default)]
+    pub summary_ai: Option<String>,
     /// "published" | "draft"
     #[serde(default)]
     pub status: String,
@@ -1059,7 +1061,16 @@ fn PostsPage(
             let hero_view = post
                 .hero_image
                 .clone()
-                .map(|src| view! { <img src=src alt=post.title.clone()/> }.into_any())
+                .map(|src| {
+                    view! {
+                        <img
+                            src=src
+                            alt=post.title.clone()
+                            style="width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:8px;margin-bottom:12px;"
+                        />
+                    }
+                    .into_any()
+                })
                 .unwrap_or_else(|| ().into_any());
             let updated_view = post
                 .updated_at
@@ -1083,6 +1094,10 @@ fn PostsPage(
                 .into_iter()
                 .map(|tag| view! { <span class="tag">{tag}</span> })
                 .collect_view();
+            let description = post
+                .summary_ai
+                .clone()
+                .unwrap_or_else(|| post.summary.clone());
 
             view! {
                 <a class="card" href=format!("/p/{}", post.slug)>
@@ -1092,7 +1107,7 @@ fn PostsPage(
                         {updated_view}
                     </div>
                     <h2>{post.title}</h2>
-                    <p>{post.summary}</p>
+                    <p>{description}</p>
                     <div class="tags">{tags}{toc_tag}{math_tag}</div>
                 </a>
             }
@@ -1389,6 +1404,7 @@ mod tests {
                 hero_image: None,
                 toc: false,
                 math: false,
+                summary_ai: None,
                 status: "published".to_owned(),
             }],
         );
