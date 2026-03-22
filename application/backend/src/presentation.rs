@@ -3,11 +3,15 @@ use actix_web::{
     HttpRequest, HttpResponse, Result, cookie::Cookie, get, http::header::ContentType, web,
 };
 use rustacian_blog_core::{
-    AdminAuthError, AiGenerationScope, BlogError, Post, PostSummary, PostVisibility,
+    AdminAuthError, AiGenerationScope, BlogError, Comment, CommentStatus, ContactMessage, Post,
+    PostSummary, PostVisibility,
 };
-use rustacian_blog_frontend::{render_post_page, render_posts_page};
+use rustacian_blog_frontend::{
+    CommentView, render_comment_list, render_contact_page, render_post_page, render_posts_page,
+};
 use std::{fs, path::Path};
 
+use crate::comment_store::new_id;
 use crate::observability::AppEvent;
 use rustacian_blog_core::NotificationEvent;
 
@@ -24,14 +28,21 @@ fn public_routes(cfg: &mut web::ServiceConfig) {
         .service(get_post)
         .service(get_image)
         .service(index_page)
-        .service(post_page);
+        .service(post_page)
+        .service(list_post_comments)
+        .service(post_comment)
+        .service(contact_page)
+        .service(post_contact);
 }
 
 fn admin_routes(cfg: &mut web::ServiceConfig) {
     cfg.service(admin_home)
         .service(admin_preview_placeholder)
         .service(generate_ai_metadata)
-        .service(regenerate_static_site);
+        .service(regenerate_static_site)
+        .service(admin_comments)
+        .service(approve_comment)
+        .service(reject_comment);
 }
 
 #[get("/health")]
@@ -243,6 +254,225 @@ async fn regenerate_static_site(
             _ => format!("local:{}", data.config.static_output_dir.display()),
         }
     })))
+}
+
+// ---------------------------------------------------------------------------
+// Comment routes
+// ---------------------------------------------------------------------------
+
+#[derive(serde::Deserialize)]
+struct CommentForm {
+    author_name: String,
+    content: String,
+}
+
+#[derive(serde::Deserialize)]
+struct ContactForm {
+    from_name: String,
+    from_email: String,
+    body: String,
+}
+
+#[get("/posts/{slug}/comments")]
+async fn list_post_comments(
+    path: web::Path<String>,
+    data: web::Data<AppState>,
+) -> Result<HttpResponse> {
+    let slug = path.into_inner();
+    let comments = data
+        .comment_repo
+        .list_comments(&slug, false)
+        .await
+        .map_err(api_app_error)?;
+    let views: Vec<CommentView> = comments
+        .into_iter()
+        .map(|c| CommentView {
+            id: c.id,
+            author_name: c.author_name,
+            content: c.content,
+            created_at: c.created_at.format("%Y-%m-%d %H:%M").to_string(),
+        })
+        .collect();
+    Ok(html_response(render_comment_list(&slug, views)))
+}
+
+#[actix_web::post("/posts/{slug}/comments")]
+async fn post_comment(
+    path: web::Path<String>,
+    form: web::Form<CommentForm>,
+    data: web::Data<AppState>,
+) -> Result<HttpResponse> {
+    let slug = path.into_inner();
+    let author_name = sanitize(&form.author_name);
+    let content = sanitize(&form.content);
+    let comment = Comment {
+        id: new_id(),
+        post_slug: slug.clone(),
+        author_name: author_name.clone(),
+        content,
+        created_at: chrono::Utc::now(),
+        status: CommentStatus::Pending,
+    };
+    data.comment_repo.create_comment(&comment).await.map_err(api_app_error)?;
+    let _ = data
+        .notification
+        .notify(NotificationEvent::CommentReceived { slug: slug.clone(), author_name })
+        .await;
+    Ok(HttpResponse::SeeOther()
+        .insert_header(("Location", format!("/posts/{slug}/comments")))
+        .finish())
+}
+
+#[get("/contact")]
+async fn contact_page() -> HttpResponse {
+    html_response(render_contact_page())
+}
+
+#[actix_web::post("/contact")]
+async fn post_contact(
+    form: web::Form<ContactForm>,
+    data: web::Data<AppState>,
+) -> Result<HttpResponse> {
+    let from_name = sanitize(&form.from_name);
+    let from_email = sanitize(&form.from_email);
+    let body = sanitize(&form.body);
+    let msg = ContactMessage {
+        id: new_id(),
+        from_name: from_name.clone(),
+        from_email,
+        body,
+        created_at: chrono::Utc::now(),
+    };
+    data.contact_repo.create_contact_message(&msg).await.map_err(api_app_error)?;
+    let _ = data
+        .notification
+        .notify(NotificationEvent::ContactFormSubmitted { from_name })
+        .await;
+    Ok(HttpResponse::SeeOther()
+        .insert_header(("Location", "/contact?sent=1"))
+        .finish())
+}
+
+// ---------------------------------------------------------------------------
+// Admin comment moderation routes
+// ---------------------------------------------------------------------------
+
+#[get("/comments")]
+async fn admin_comments(
+    request: HttpRequest,
+    data: web::Data<AppState>,
+) -> Result<HttpResponse> {
+    authenticate_admin(&request, &data, "admin_comments").await.map_err(admin_auth_error)?;
+    let pending = data.comment_repo.list_all_pending().await.map_err(internal_app_error)?;
+    let rows: String = pending
+        .iter()
+        .map(|c| {
+            format!(
+                r#"<tr>
+<td>{}</td><td>{}</td>
+<td style="max-width:320px;word-break:break-word;">{}</td>
+<td>{}</td>
+<td style="display:flex;gap:8px;">
+<form method="post" action="/admin/comments/{}/approve" style="display:inline;">
+  <button type="submit" style="background:#2a7a3b;color:#fff;border:none;padding:4px 10px;border-radius:6px;cursor:pointer;">承認</button>
+</form>
+<form method="post" action="/admin/comments/{}/reject" style="display:inline;">
+  <button type="submit" style="background:#b3541e;color:#fff;border:none;padding:4px 10px;border-radius:6px;cursor:pointer;">却下</button>
+</form>
+</td>
+</tr>"#,
+                escape_html(&c.post_slug),
+                escape_html(&c.author_name),
+                escape_html(&c.content),
+                c.created_at.format("%Y-%m-%d %H:%M"),
+                c.id,
+                c.id,
+            )
+        })
+        .collect();
+    let body = format!(
+        r#"<main style="max-width:1080px;margin:40px auto;padding:0 20px;font-family:Georgia,'Times New Roman',serif;">
+<p style="text-transform:uppercase;letter-spacing:0.12em;color:#b3541e;font-size:12px;">Admin</p>
+<h1>コメントモデレーション</h1>
+<p>承認待ち: {} 件</p>
+<table style="width:100%;border-collapse:collapse;font-size:14px;">
+<thead><tr style="border-bottom:2px solid #d9c2a3;">
+<th style="text-align:left;padding:8px;">記事</th>
+<th style="text-align:left;padding:8px;">投稿者</th>
+<th style="text-align:left;padding:8px;">内容</th>
+<th style="text-align:left;padding:8px;">投稿日時</th>
+<th style="padding:8px;">操作</th>
+</tr></thead>
+<tbody>{}</tbody>
+</table>
+</main>"#,
+        pending.len(),
+        rows
+    );
+    Ok(html_response(wrap_minimal("Admin — コメント", &body)))
+}
+
+#[actix_web::post("/comments/{id}/approve")]
+async fn approve_comment(
+    path: web::Path<String>,
+    request: HttpRequest,
+    data: web::Data<AppState>,
+) -> Result<HttpResponse> {
+    authenticate_admin(&request, &data, "admin_comments_approve")
+        .await
+        .map_err(admin_auth_error)?;
+    let id = path.into_inner();
+    data.comment_repo
+        .update_status(&id, CommentStatus::Approved)
+        .await
+        .map_err(api_app_error)?;
+    Ok(HttpResponse::SeeOther()
+        .insert_header(("Location", "/admin/comments"))
+        .finish())
+}
+
+#[actix_web::post("/comments/{id}/reject")]
+async fn reject_comment(
+    path: web::Path<String>,
+    request: HttpRequest,
+    data: web::Data<AppState>,
+) -> Result<HttpResponse> {
+    authenticate_admin(&request, &data, "admin_comments_reject")
+        .await
+        .map_err(admin_auth_error)?;
+    let id = path.into_inner();
+    data.comment_repo
+        .update_status(&id, CommentStatus::Rejected)
+        .await
+        .map_err(api_app_error)?;
+    Ok(HttpResponse::SeeOther()
+        .insert_header(("Location", "/admin/comments"))
+        .finish())
+}
+
+// ---------------------------------------------------------------------------
+// Sanitization helper
+// ---------------------------------------------------------------------------
+
+fn sanitize(input: &str) -> String {
+    ammonia::Builder::new()
+        .tags(std::collections::HashSet::new())
+        .clean(input)
+        .to_string()
+}
+
+fn wrap_minimal(title: &str, body: &str) -> String {
+    format!(
+        r#"<!doctype html>
+<html lang="ja"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{title}</title>
+<style>
+body{{margin:0;background:#f7f1e7;font-family:Georgia,'Times New Roman',serif;color:#1f2933;}}
+</style>
+</head><body>{body}</body></html>"#
+    )
 }
 
 async fn authenticate_admin(
@@ -571,7 +801,8 @@ mod tests {
     use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
     use chrono::{DateTime, Utc};
     use rustacian_blog_core::{
-        AdminAuthService, AiAssistRequest, AiMetadataGenerator, GenerateAiMetadataUseCase,
+        AdminAuthService, AiAssistRequest, AiMetadataGenerator, Comment, CommentRepository,
+        CommentStatus, ContactMessage, ContactRepository, GenerateAiMetadataUseCase,
         GeneratedMetadata, GeneratedMetadataStore, GetPostUseCase, ListPostsUseCase,
         NotificationEvent, NotificationSink, PostMetadata, PostRepository, PostStatus,
         PostVisibility, PublishStaticSiteUseCase, StaticSiteBuild, StaticSiteGenerator,
@@ -602,6 +833,8 @@ mod tests {
 
     struct MockObservabilitySink;
     struct MockNotificationSink;
+    struct MockCommentRepository;
+    struct MockContactRepository;
     struct MockStaticSiteGenerator;
     #[derive(Default)]
     struct MockStaticSitePublisher;
@@ -679,6 +912,40 @@ mod tests {
     }
 
     #[async_trait]
+    impl CommentRepository for MockCommentRepository {
+        async fn create_comment(&self, _comment: &Comment) -> Result<(), BlogError> {
+            Ok(())
+        }
+
+        async fn list_comments(
+            &self,
+            _slug: &str,
+            _include_pending: bool,
+        ) -> Result<Vec<Comment>, BlogError> {
+            Ok(Vec::new())
+        }
+
+        async fn list_all_pending(&self) -> Result<Vec<Comment>, BlogError> {
+            Ok(Vec::new())
+        }
+
+        async fn update_status(&self, _id: &str, _status: CommentStatus) -> Result<(), BlogError> {
+            Ok(())
+        }
+    }
+
+    #[async_trait]
+    impl ContactRepository for MockContactRepository {
+        async fn create_contact_message(
+            &self,
+            _msg: &ContactMessage,
+        ) -> Result<(), BlogError> {
+            Ok(())
+        }
+    }
+
+
+    #[async_trait]
     impl StaticSiteGenerator for MockStaticSiteGenerator {
         async fn generate(&self) -> Result<StaticSiteBuild, BlogError> {
             Ok(StaticSiteBuild::default())
@@ -701,6 +968,8 @@ mod tests {
             }),
             observability: Arc::new(MockObservabilitySink),
             notification: Arc::new(MockNotificationSink),
+            comment_repo: Arc::new(MockCommentRepository),
+            contact_repo: Arc::new(MockContactRepository),
             image_blob: None,
             generate_ai_metadata: None,
             publish_static_site: Some(PublishStaticSiteUseCase::new(
@@ -1163,5 +1432,176 @@ mod tests {
                 .and_then(|value| value.to_str().ok()),
             Some("image/svg+xml")
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // XSS / Injection sanitization tests
+    // -----------------------------------------------------------------------
+
+    #[actix_web::test]
+    async fn sanitize_strips_script_tags() {
+        let input = r#"<script>alert(1)</script>Hello"#;
+        let output = sanitize(input);
+        assert!(!output.contains("<script>"));
+        assert!(output.contains("Hello"));
+    }
+
+    #[actix_web::test]
+    async fn sanitize_strips_img_onerror() {
+        let input = r#"<img src=x onerror="alert(1)">text"#;
+        let output = sanitize(input);
+        assert!(!output.contains("onerror"));
+        assert!(output.contains("text"));
+    }
+
+    #[actix_web::test]
+    async fn sanitize_strips_all_html_tags() {
+        let input = r#"<b>bold</b> <i>italic</i> <a href="http://evil.com">click</a>"#;
+        let output = sanitize(input);
+        assert!(!output.contains('<'));
+        assert!(output.contains("bold"));
+        assert!(output.contains("italic"));
+        assert!(output.contains("click"));
+    }
+
+    #[actix_web::test]
+    async fn sanitize_preserves_plain_text() {
+        let input = "普通のコメントです。Rust is great!";
+        assert_eq!(sanitize(input), input);
+    }
+
+    // -----------------------------------------------------------------------
+    // Comment route tests
+    // -----------------------------------------------------------------------
+
+    #[actix_web::test]
+    async fn post_comment_redirects_after_success() {
+        let state = app_state(Arc::new(MockRepository {
+            list_result: Ok(Vec::new()),
+            get_result: Ok(sample_post()),
+        }));
+        let app =
+            test::init_service(App::new().app_data(web::Data::new(state)).configure(routes)).await;
+
+        let response = test::call_service(
+            &app,
+            test::TestRequest::post()
+                .uri("/posts/sample/comments")
+                .set_form(&[("author_name", "Alice"), ("content", "Great post!")])
+                .to_request(),
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::SEE_OTHER);
+        assert_eq!(
+            response.headers().get("location").and_then(|v| v.to_str().ok()),
+            Some("/posts/sample/comments")
+        );
+    }
+
+    #[actix_web::test]
+    async fn list_post_comments_returns_html() {
+        let state = app_state(Arc::new(MockRepository {
+            list_result: Ok(Vec::new()),
+            get_result: Ok(sample_post()),
+        }));
+        let app =
+            test::init_service(App::new().app_data(web::Data::new(state)).configure(routes)).await;
+
+        let response = test::call_service(
+            &app,
+            test::TestRequest::get().uri("/posts/sample/comments").to_request(),
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[actix_web::test]
+    async fn contact_page_returns_html() {
+        let state = app_state(Arc::new(MockRepository {
+            list_result: Ok(Vec::new()),
+            get_result: Ok(sample_post()),
+        }));
+        let app =
+            test::init_service(App::new().app_data(web::Data::new(state)).configure(routes)).await;
+
+        let response = test::call_service(
+            &app,
+            test::TestRequest::get().uri("/contact").to_request(),
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[actix_web::test]
+    async fn post_contact_redirects_after_success() {
+        let state = app_state(Arc::new(MockRepository {
+            list_result: Ok(Vec::new()),
+            get_result: Ok(sample_post()),
+        }));
+        let app =
+            test::init_service(App::new().app_data(web::Data::new(state)).configure(routes)).await;
+
+        let response = test::call_service(
+            &app,
+            test::TestRequest::post()
+                .uri("/contact")
+                .set_form(&[
+                    ("from_name", "Bob"),
+                    ("from_email", "bob@example.com"),
+                    ("body", "Hello!"),
+                ])
+                .to_request(),
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::SEE_OTHER);
+    }
+
+    #[actix_web::test]
+    async fn admin_comments_requires_auth() {
+        let state = app_state(Arc::new(MockRepository {
+            list_result: Ok(Vec::new()),
+            get_result: Ok(sample_post()),
+        }));
+        let app =
+            test::init_service(App::new().app_data(web::Data::new(state)).configure(routes)).await;
+
+        let response = test::call_service(
+            &app,
+            test::TestRequest::get().uri("/admin/comments").to_request(),
+        )
+        .await;
+
+        // auth disabled → 501 (admin not configured)
+        assert_eq!(response.status(), StatusCode::NOT_IMPLEMENTED);
+    }
+
+    #[actix_web::test]
+    async fn admin_comments_accessible_with_auth() {
+        let state = app_state_with_admin_auth(Arc::new(MockRepository {
+            list_result: Ok(Vec::new()),
+            get_result: Ok(sample_post()),
+        }));
+        let app =
+            test::init_service(App::new().app_data(web::Data::new(state)).configure(routes)).await;
+
+        let response = test::call_service(
+            &app,
+            test::TestRequest::get()
+                .uri("/admin/comments")
+                .insert_header((
+                    "authorization",
+                    bearer_for(
+                        r#"{"aud":"client-123","tid":"tenant-123","groups":["group-123"],"oid":"user-1"}"#,
+                    ),
+                ))
+                .to_request(),
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::OK);
     }
 }

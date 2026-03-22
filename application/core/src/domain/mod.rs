@@ -1,5 +1,6 @@
 pub mod admin;
 pub mod ai;
+pub mod comment;
 pub mod error;
 pub mod notification;
 pub mod post;

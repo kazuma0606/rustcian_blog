@@ -2,6 +2,14 @@ use leptos::prelude::*;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CommentView {
+    pub id: String,
+    pub author_name: String,
+    pub content: String,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TocItemView {
     pub level: u8,
     pub title: String,
@@ -95,6 +103,92 @@ pub fn render_post_page(post: PostView) -> String {
     let enable_mermaid = post.body_html.contains("class=\"mermaid\"");
     let body = view! { <PostPage post=post/> }.to_html();
     wrap_document(&title, &body, enable_math, enable_mermaid)
+}
+
+pub fn render_comment_list(slug: &str, comments: Vec<CommentView>) -> String {
+    let list = if comments.is_empty() {
+        "<p style=\"color:var(--muted);font-size:14px;\">まだコメントはありません。</p>"
+            .to_owned()
+    } else {
+        comments
+            .iter()
+            .map(|c| {
+                format!(
+                    r#"<div style="padding:16px 0;border-bottom:1px solid var(--line);">
+<div style="font-size:13px;color:var(--muted);margin-bottom:4px;">{} · {}</div>
+<div style="line-height:1.7;">{}</div>
+</div>"#,
+                    esc(&c.author_name),
+                    esc(&c.created_at),
+                    esc(&c.content),
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+
+    let slug_escaped = esc(slug);
+    let body = format!(
+        r#"<div class="shell">
+<div class="hero" style="max-width:720px;margin:40px auto;">
+  <p class="eyebrow" style="text-transform:uppercase;letter-spacing:0.12em;color:var(--accent);font-size:12px;">Comments</p>
+  <h2 style="margin-top:4px;margin-bottom:20px;">コメント一覧</h2>
+  {list}
+  <h3 style="margin-top:32px;margin-bottom:12px;">コメントを投稿</h3>
+  <form method="post" action="/posts/{slug_escaped}/comments" style="display:flex;flex-direction:column;gap:12px;">
+    <input name="author_name" placeholder="名前" required
+      style="padding:10px 14px;border:1px solid var(--line);border-radius:10px;background:var(--bg);font-family:inherit;font-size:15px;">
+    <textarea name="content" placeholder="コメント本文" rows="4" required
+      style="padding:10px 14px;border:1px solid var(--line);border-radius:10px;background:var(--bg);font-family:inherit;font-size:15px;resize:vertical;"></textarea>
+    <button type="submit"
+      style="align-self:flex-start;padding:10px 24px;background:var(--accent);color:#fff;border:none;border-radius:10px;cursor:pointer;font-family:inherit;font-size:15px;">
+      投稿
+    </button>
+  </form>
+</div>
+</div>"#
+    );
+    wrap_document("コメント", &body, false, false)
+}
+
+pub fn render_contact_page() -> String {
+    let body = r#"<div class="shell">
+<div class="hero" style="max-width:640px;margin:40px auto;">
+  <p class="eyebrow" style="text-transform:uppercase;letter-spacing:0.12em;color:var(--accent);font-size:12px;">Contact</p>
+  <h1 style="margin-top:4px;margin-bottom:8px;">お問い合わせ</h1>
+  <p style="color:var(--muted);margin-bottom:24px;font-size:15px;">ご質問・ご意見はこちらからお送りください。</p>
+  <form method="post" action="/contact" style="display:flex;flex-direction:column;gap:14px;">
+    <label style="display:flex;flex-direction:column;gap:4px;font-size:14px;color:var(--muted);">
+      お名前
+      <input name="from_name" placeholder="山田 太郎" required
+        style="padding:10px 14px;border:1px solid var(--line);border-radius:10px;background:var(--bg);font-family:inherit;font-size:15px;color:var(--text);">
+    </label>
+    <label style="display:flex;flex-direction:column;gap:4px;font-size:14px;color:var(--muted);">
+      メールアドレス
+      <input name="from_email" type="email" placeholder="you@example.com" required
+        style="padding:10px 14px;border:1px solid var(--line);border-radius:10px;background:var(--bg);font-family:inherit;font-size:15px;color:var(--text);">
+    </label>
+    <label style="display:flex;flex-direction:column;gap:4px;font-size:14px;color:var(--muted);">
+      お問い合わせ内容
+      <textarea name="body" rows="6" placeholder="ご質問・ご意見をお書きください" required
+        style="padding:10px 14px;border:1px solid var(--line);border-radius:10px;background:var(--bg);font-family:inherit;font-size:15px;color:var(--text);resize:vertical;"></textarea>
+    </label>
+    <button type="submit"
+      style="align-self:flex-start;padding:10px 28px;background:var(--accent);color:#fff;border:none;border-radius:10px;cursor:pointer;font-family:inherit;font-size:16px;">
+      送信
+    </button>
+  </form>
+</div>
+</div>"#;
+    wrap_document("お問い合わせ", body, false, false)
+}
+
+fn esc(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#39;")
 }
 
 fn render_posts_shell(

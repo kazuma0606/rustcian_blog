@@ -10,6 +10,7 @@ pub use domain::ai::{
     AiAssistRequest, AiGenerationScope, AiMetadataGenerator, GeneratedMetadata,
     GeneratedMetadataStore,
 };
+pub use domain::comment::{Comment, CommentRepository, CommentStatus, ContactMessage, ContactRepository};
 pub use domain::error::BlogError;
 pub use domain::notification::{NotificationEvent, NotificationSink};
 pub use domain::post::{

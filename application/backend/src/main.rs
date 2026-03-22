@@ -6,6 +6,10 @@ use rustacian_blog_backend::{
     ai::{build_ai_metadata_generator, build_generated_metadata_store},
     auth::build_admin_auth_service,
     blob::AzuriteBlobAdapter,
+    comment_store::{
+        AzuriteCommentRepository, AzuriteContactRepository, build_comment_repository,
+        build_contact_repository,
+    },
     config::AppConfig,
     notification::build_notification_sink,
     observability::{AppEvent, build_observability_sink},
@@ -38,6 +42,18 @@ async fn main() -> std::io::Result<()> {
         _ => Arc::new(LocalContentPostRepository::new(config.content_root.clone())),
     };
 
+    // Initialize Azurite Table Storage tables if needed.
+    if let Some(endpoint) = &config.azurite_table_endpoint {
+        AzuriteCommentRepository::new(endpoint.clone())
+            .init()
+            .await
+            .expect("failed to create comments table");
+        AzuriteContactRepository::new(endpoint.clone())
+            .init()
+            .await
+            .expect("failed to create contacts table");
+    }
+
     let static_generator = Arc::new(LocalStaticSiteGenerator::new(
         repository.clone(),
         Arc::new(LocalFileAssetStore::new(config.content_root.clone())),
@@ -61,6 +77,8 @@ async fn main() -> std::io::Result<()> {
         admin_auth: build_admin_auth_service(&config),
         observability: build_observability_sink(&config),
         notification: build_notification_sink(&config),
+        comment_repo: build_comment_repository(&config),
+        contact_repo: build_contact_repository(&config),
         image_blob: config
             .azurite_blob_endpoint
             .clone()

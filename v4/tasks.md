@@ -74,42 +74,44 @@
 ### 3.4 Phase 2 — コメント & お問い合わせフォーム
 
 #### 3.4.1 Core ドメイン
-- [ ] `application/core/src/domain/comment.rs` を新規作成する
-- [ ] `Comment` エンティティを定義する（`id` / `post_slug` / `author_name` / `content` / `created_at` / `status`）
-- [ ] `CommentStatus` enum を定義する（`Pending` / `Approved` / `Rejected`）
-- [ ] `ContactMessage` エンティティを定義する（`id` / `from_name` / `from_email` / `body` / `created_at`）
-- [ ] `CommentRepository` トレイトを定義する（`create_comment` / `list_comments` / `update_status`）
-- [ ] `ContactRepository` トレイトを定義する（`create_contact_message`）
-- [ ] `domain/mod.rs` に `comment` モジュールを追加する
+- [x] `application/core/src/domain/comment.rs` を新規作成する
+- [x] `Comment` エンティティを定義する（`id` / `post_slug` / `author_name` / `content` / `created_at` / `status`）
+- [x] `CommentStatus` enum を定義する（`Pending` / `Approved` / `Rejected`）
+- [x] `ContactMessage` エンティティを定義する（`id` / `from_name` / `from_email` / `body` / `created_at`）
+- [x] `CommentRepository` トレイトを定義する（`create_comment` / `list_comments` / `list_all_pending` / `update_status`）
+- [x] `ContactRepository` トレイトを定義する（`create_contact_message`）
+- [x] `domain/mod.rs` に `comment` モジュールを追加する
 
 #### 3.4.2 サニタイズ
-- [ ] `application/backend/Cargo.toml` に `ammonia` を追加する
-- [ ] コメント・お問い合わせ投稿時のサニタイズ処理を実装する（HTML タグ除去）
+- [x] `application/backend/Cargo.toml` に `ammonia` を追加する
+- [x] コメント・お問い合わせ投稿時のサニタイズ処理を実装する（HTML タグ除去）
 
 #### 3.4.3 Backend ストレージ実装
-- [ ] `application/backend/src/comment_store.rs` を新規作成する
-- [ ] `AzuriteCommentRepository` を実装する（Azure Table Storage / Azurite）
-- [ ] `AzuriteContactRepository` を実装する（Azure Table Storage / Azurite）
-- [ ] `build_comment_repository()` / `build_contact_repository()` ファクトリを実装する
+- [x] `application/backend/src/comment_store.rs` を新規作成する
+- [x] `InMemoryCommentRepository` / `AzuriteCommentRepository` を実装する（Table Storage / Azurite）
+- [x] `InMemoryContactRepository` / `AzuriteContactRepository` を実装する
+- [x] `build_comment_repository()` / `build_contact_repository()` ファクトリを実装する
+- [x] `application/backend/src/table.rs` を新規作成する（Azurite Table Storage REST クライアント）
 
 #### 3.4.4 ルート追加
-- [ ] `POST /posts/{slug}/comments` を実装する（サニタイズ → 保存 → `CommentReceived` 通知）
-- [ ] `GET /posts/{slug}/comments` を実装する（承認済み一覧を SSR 埋め込み）
-- [ ] `POST /contact` を実装する（サニタイズ → 保存 → `ContactFormSubmitted` 通知）
-- [ ] `GET /admin/comments` を実装する（モデレーションキュー、要認証）
-- [ ] `POST /admin/comments/{id}/approve` を実装する（要認証）
-- [ ] `POST /admin/comments/{id}/reject` を実装する（要認証）
-- [ ] `presentation.rs` のルート設定に追加する
+- [x] `POST /posts/{slug}/comments` を実装する（サニタイズ → 保存 → `CommentReceived` 通知）
+- [x] `GET /posts/{slug}/comments` を実装する（承認済み一覧を SSR 埋め込み）
+- [x] `GET /contact` を実装する（お問い合わせフォームページ）
+- [x] `POST /contact` を実装する（サニタイズ → 保存 → `ContactFormSubmitted` 通知）
+- [x] `GET /admin/comments` を実装する（モデレーションキュー、要認証）
+- [x] `POST /admin/comments/{id}/approve` を実装する（要認証）
+- [x] `POST /admin/comments/{id}/reject` を実装する（要認証）
+- [x] `presentation.rs` のルート設定に追加する
 
 #### 3.4.5 Frontend（SSR）
-- [ ] コメント一覧の SSR レンダリング関数をフロントエンドクレートに追加する
-- [ ] お問い合わせフォームの SSR レンダリング関数を追加する
+- [x] コメント一覧の SSR レンダリング関数をフロントエンドクレートに追加する（`render_comment_list`）
+- [x] お問い合わせフォームの SSR レンダリング関数を追加する（`render_contact_page`）
 
 #### 3.4.6 テスト
-- [ ] XSS ペイロード（`<script>alert(1)</script>` 等）がサニタイズされることを確認するテストを追加する
-- [ ] HTML 属性インジェクション（`<img onerror=...>`）のテストを追加する
-- [ ] モデレーションステータス遷移（Pending → Approved / Rejected）のテストを追加する
-- [ ] 承認済みコメントのみ公開 API に返ることを確認するテストを追加する
+- [x] XSS ペイロード（`<script>alert(1)</script>` 等）がサニタイズされることを確認するテストを追加する
+- [x] HTML 属性インジェクション（`<img onerror=...>`）のテストを追加する
+- [x] モデレーションステータス遷移（Pending → Approved / Rejected）のテストを追加する（comment_store.rs）
+- [x] 承認済みコメントのみ公開 API に返ることを確認するテストを追加する
 
 ---
 
