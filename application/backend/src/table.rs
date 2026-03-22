@@ -206,10 +206,9 @@ fn extract_endpoint_path(endpoint: &str) -> &str {
     if let Some(after_scheme) = endpoint
         .strip_prefix("http://")
         .or_else(|| endpoint.strip_prefix("https://"))
+        && let Some(slash) = after_scheme.find('/')
     {
-        if let Some(slash) = after_scheme.find('/') {
-            return &after_scheme[slash..];
-        }
+        return &after_scheme[slash..];
     }
     ""
 }
