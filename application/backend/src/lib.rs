@@ -1,9 +1,13 @@
 pub mod ai;
 pub mod auth;
 pub mod blob;
+pub mod comment_store;
 pub mod config;
+pub mod notification;
 pub mod observability;
 pub mod presentation;
+pub mod search;
 pub mod state;
 pub mod static_site;
 pub mod storage;
+pub mod table;

@@ -314,6 +314,7 @@ mod tests {
             observability_backend: "noop".to_owned(),
             application_insights_connection_string: None,
             base_url: "http://127.0.0.1:8080".to_owned(),
+            slack_webhook_url: None,
         };
 
         let store = build_generated_metadata_store(&config);
@@ -360,6 +361,7 @@ mod tests {
             observability_backend: "noop".to_owned(),
             application_insights_connection_string: None,
             base_url: "http://127.0.0.1:8080".to_owned(),
+            slack_webhook_url: None,
         };
         let store = build_generated_metadata_store(&config);
         let metadata = GeneratedMetadata {
@@ -412,6 +414,7 @@ mod tests {
             observability_backend: "noop".to_owned(),
             application_insights_connection_string: None,
             base_url: "http://127.0.0.1:8080".to_owned(),
+            slack_webhook_url: None,
         };
 
         assert!(build_ai_metadata_generator(&config).is_none());

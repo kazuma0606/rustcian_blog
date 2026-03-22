@@ -3,12 +3,20 @@ use actix_web::{
     HttpRequest, HttpResponse, Result, cookie::Cookie, get, http::header::ContentType, web,
 };
 use rustacian_blog_core::{
-    AdminAuthError, AiGenerationScope, BlogError, Post, PostSummary, PostVisibility,
+    AdminAuthError, AiGenerationScope, BlogError, Comment, CommentStatus, ContactMessage, Post,
+    PostSummary, PostVisibility, SearchQuery,
 };
-use rustacian_blog_frontend::{render_post_page, render_posts_page};
+use rustacian_blog_frontend::{
+    CommentView, GeneratedMetadataView, SearchResultView, render_admin_comments,
+    render_admin_dashboard, render_admin_post_detail, render_admin_static_panel,
+    render_comment_list, render_contact_page, render_post_page, render_posts_page,
+    render_search_page,
+};
 use std::{fs, path::Path};
 
+use crate::comment_store::new_id;
 use crate::observability::AppEvent;
+use rustacian_blog_core::NotificationEvent;
 
 pub fn routes(cfg: &mut web::ServiceConfig) {
     cfg.service(health).service(
@@ -23,14 +31,24 @@ fn public_routes(cfg: &mut web::ServiceConfig) {
         .service(get_post)
         .service(get_image)
         .service(index_page)
-        .service(post_page);
+        .service(post_page)
+        .service(list_post_comments)
+        .service(post_comment)
+        .service(contact_page)
+        .service(post_contact)
+        .service(search_page);
 }
 
 fn admin_routes(cfg: &mut web::ServiceConfig) {
     cfg.service(admin_home)
         .service(admin_preview_placeholder)
+        .service(admin_post_detail)
+        .service(admin_static_panel)
         .service(generate_ai_metadata)
-        .service(regenerate_static_site);
+        .service(regenerate_static_site)
+        .service(admin_comments)
+        .service(approve_comment)
+        .service(reject_comment);
 }
 
 #[get("/health")]
@@ -144,7 +162,7 @@ async fn admin_home(request: HttpRequest, data: web::Data<AppState>) -> Result<H
         .execute_with_visibility(PostVisibility::IncludeDrafts)
         .await
         .map_err(internal_app_error)?;
-    let mut response = html_response(render_admin_home(posts));
+    let mut response = html_response(render_admin_dashboard(map_summaries(posts)));
     attach_admin_session_cookie(&request, &mut response);
     Ok(response)
 }
@@ -168,6 +186,42 @@ async fn admin_preview_placeholder(
     Ok(html_response(render_post_page(map_post(post))))
 }
 
+#[get("/posts/{slug}")]
+async fn admin_post_detail(
+    path: web::Path<String>,
+    request: HttpRequest,
+    data: web::Data<AppState>,
+) -> Result<HttpResponse> {
+    authenticate_admin(&request, &data, "admin_post_detail")
+        .await
+        .map_err(admin_auth_error)?;
+    let slug = path.into_inner();
+    let post = data
+        .get_post
+        .execute_with_visibility(&slug, PostVisibility::IncludeDrafts)
+        .await
+        .map_err(api_app_error)?;
+
+    // Try to load previously generated AI metadata from metadata_dir/<slug>.json
+    let metadata = load_generated_metadata(&data.config, &slug).await;
+
+    Ok(html_response(render_admin_post_detail(
+        map_post(post),
+        metadata,
+    )))
+}
+
+#[get("/static")]
+async fn admin_static_panel(
+    request: HttpRequest,
+    data: web::Data<AppState>,
+) -> Result<HttpResponse> {
+    authenticate_admin(&request, &data, "admin_static_panel")
+        .await
+        .map_err(admin_auth_error)?;
+    Ok(html_response(render_admin_static_panel()))
+}
+
 #[actix_web::post("/ai/{slug}/metadata")]
 async fn generate_ai_metadata(
     path: web::Path<String>,
@@ -189,6 +243,13 @@ async fn generate_ai_metadata(
                 outcome: "success",
                 source_model: generated.source_model.clone(),
             });
+            let _ = data
+                .notification
+                .notify(NotificationEvent::AiMetadataGenerated {
+                    slug: slug.clone(),
+                    outcome: "success".to_owned(),
+                })
+                .await;
             generated
         }
         Err(error) => {
@@ -216,16 +277,278 @@ async fn regenerate_static_site(
         actix_web::error::ErrorNotImplemented("static publishing is not configured")
     })?;
     let build = use_case.execute().await.map_err(internal_app_error)?;
+    let page_count = build.pages.len();
+
+    // Rebuild the search index from all published posts.
+    {
+        let slugs = data.list_posts.execute().await.unwrap_or_default();
+        let mut posts = Vec::with_capacity(slugs.len());
+        for s in &slugs {
+            if let Ok(post) = data.get_post.execute(&s.slug).await {
+                posts.push(post);
+            }
+        }
+        let _ = data.search_index.rebuild(&posts);
+    }
+
+    let _ = data
+        .notification
+        .notify(NotificationEvent::StaticSiteRebuilt {
+            page_count,
+            outcome: "success".to_owned(),
+        })
+        .await;
 
     Ok(HttpResponse::Ok().json(serde_json::json!({
         "status": "ok",
-        "pages": build.pages.len(),
+        "pages": page_count,
         "assets": build.assets.len(),
         "target": match data.config.static_publish_backend.as_str() {
             "azurite" => format!("azurite:{}", data.config.static_publish_prefix),
             _ => format!("local:{}", data.config.static_output_dir.display()),
         }
     })))
+}
+
+// ---------------------------------------------------------------------------
+// Comment routes
+// ---------------------------------------------------------------------------
+
+#[derive(serde::Deserialize)]
+struct CommentForm {
+    author_name: String,
+    content: String,
+}
+
+#[derive(serde::Deserialize)]
+struct ContactForm {
+    from_name: String,
+    from_email: String,
+    body: String,
+}
+
+#[get("/posts/{slug}/comments")]
+async fn list_post_comments(
+    path: web::Path<String>,
+    data: web::Data<AppState>,
+) -> Result<HttpResponse> {
+    let slug = path.into_inner();
+    let comments = data
+        .comment_repo
+        .list_comments(&slug, false)
+        .await
+        .map_err(api_app_error)?;
+    let views: Vec<CommentView> = comments
+        .into_iter()
+        .map(|c| CommentView {
+            id: c.id,
+            author_name: c.author_name,
+            content: c.content,
+            created_at: c.created_at.format("%Y-%m-%d %H:%M").to_string(),
+        })
+        .collect();
+    Ok(html_response(render_comment_list(&slug, views)))
+}
+
+#[actix_web::post("/posts/{slug}/comments")]
+async fn post_comment(
+    path: web::Path<String>,
+    form: web::Form<CommentForm>,
+    data: web::Data<AppState>,
+) -> Result<HttpResponse> {
+    let slug = path.into_inner();
+    let author_name = sanitize(&form.author_name);
+    let content = sanitize(&form.content);
+    let comment = Comment {
+        id: new_id(),
+        post_slug: slug.clone(),
+        author_name: author_name.clone(),
+        content,
+        created_at: chrono::Utc::now(),
+        status: CommentStatus::Pending,
+    };
+    data.comment_repo
+        .create_comment(&comment)
+        .await
+        .map_err(api_app_error)?;
+    let _ = data
+        .notification
+        .notify(NotificationEvent::CommentReceived {
+            slug: slug.clone(),
+            author_name,
+        })
+        .await;
+    Ok(HttpResponse::SeeOther()
+        .insert_header(("Location", format!("/posts/{slug}/comments")))
+        .finish())
+}
+
+#[get("/contact")]
+async fn contact_page() -> HttpResponse {
+    html_response(render_contact_page())
+}
+
+#[actix_web::post("/contact")]
+async fn post_contact(
+    form: web::Form<ContactForm>,
+    data: web::Data<AppState>,
+) -> Result<HttpResponse> {
+    let from_name = sanitize(&form.from_name);
+    let from_email = sanitize(&form.from_email);
+    let body = sanitize(&form.body);
+    let msg = ContactMessage {
+        id: new_id(),
+        from_name: from_name.clone(),
+        from_email,
+        body,
+        created_at: chrono::Utc::now(),
+    };
+    data.contact_repo
+        .create_contact_message(&msg)
+        .await
+        .map_err(api_app_error)?;
+    let _ = data
+        .notification
+        .notify(NotificationEvent::ContactFormSubmitted { from_name })
+        .await;
+    Ok(HttpResponse::SeeOther()
+        .insert_header(("Location", "/contact?sent=1"))
+        .finish())
+}
+
+// ---------------------------------------------------------------------------
+// Search route
+// ---------------------------------------------------------------------------
+
+#[get("/search")]
+async fn search_page(query: web::Query<SearchQuery>, data: web::Data<AppState>) -> HttpResponse {
+    let q = query.q.trim();
+    let results = if q.is_empty() {
+        Vec::new()
+    } else {
+        data.search_index
+            .search(q, 20)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|r| SearchResultView {
+                slug: r.slug,
+                title: r.title,
+                excerpt: r.excerpt,
+                tags: r.tags,
+                date: r.date,
+            })
+            .collect()
+    };
+    html_response(render_search_page(q, results))
+}
+
+// ---------------------------------------------------------------------------
+// Admin comment moderation routes
+// ---------------------------------------------------------------------------
+
+#[get("/comments")]
+async fn admin_comments(request: HttpRequest, data: web::Data<AppState>) -> Result<HttpResponse> {
+    authenticate_admin(&request, &data, "admin_comments")
+        .await
+        .map_err(admin_auth_error)?;
+    let pending = data
+        .comment_repo
+        .list_all_pending()
+        .await
+        .map_err(internal_app_error)?;
+    let views: Vec<CommentView> = pending
+        .into_iter()
+        .map(|c| CommentView {
+            id: c.id,
+            author_name: c.author_name,
+            content: c.content,
+            created_at: c.created_at.format("%Y-%m-%d %H:%M").to_string(),
+        })
+        .collect();
+    Ok(html_response(render_admin_comments(views)))
+}
+
+#[actix_web::post("/comments/{id}/approve")]
+async fn approve_comment(
+    path: web::Path<String>,
+    request: HttpRequest,
+    data: web::Data<AppState>,
+) -> Result<HttpResponse> {
+    authenticate_admin(&request, &data, "admin_comments_approve")
+        .await
+        .map_err(admin_auth_error)?;
+    let id = path.into_inner();
+    data.comment_repo
+        .update_status(&id, CommentStatus::Approved)
+        .await
+        .map_err(api_app_error)?;
+    Ok(HttpResponse::SeeOther()
+        .insert_header(("Location", "/admin/comments"))
+        .finish())
+}
+
+#[actix_web::post("/comments/{id}/reject")]
+async fn reject_comment(
+    path: web::Path<String>,
+    request: HttpRequest,
+    data: web::Data<AppState>,
+) -> Result<HttpResponse> {
+    authenticate_admin(&request, &data, "admin_comments_reject")
+        .await
+        .map_err(admin_auth_error)?;
+    let id = path.into_inner();
+    data.comment_repo
+        .update_status(&id, CommentStatus::Rejected)
+        .await
+        .map_err(api_app_error)?;
+    Ok(HttpResponse::SeeOther()
+        .insert_header(("Location", "/admin/comments"))
+        .finish())
+}
+
+// ---------------------------------------------------------------------------
+// Admin helper: load previously generated AI metadata from disk
+// ---------------------------------------------------------------------------
+
+async fn load_generated_metadata(
+    config: &crate::config::AppConfig,
+    slug: &str,
+) -> Option<GeneratedMetadataView> {
+    let path = config.metadata_dir().join(format!("{slug}.json"));
+    let bytes = std::fs::read(&path).ok()?;
+    let val: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
+    Some(GeneratedMetadataView {
+        summary_ai: val["summary_ai"].as_str().map(str::to_owned),
+        suggested_tags: val["suggested_tags"]
+            .as_array()
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(str::to_owned))
+                    .collect()
+            })
+            .unwrap_or_default(),
+        intro_candidates: val["intro_candidates"]
+            .as_array()
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(str::to_owned))
+                    .collect()
+            })
+            .unwrap_or_default(),
+        generated_at: val["generated_at"].as_str().unwrap_or("").to_owned(),
+        source_model: val["source_model"].as_str().map(str::to_owned),
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Sanitization helper
+// ---------------------------------------------------------------------------
+
+fn sanitize(input: &str) -> String {
+    ammonia::Builder::new()
+        .tags(std::collections::HashSet::new())
+        .clean(input)
+        .to_string()
 }
 
 async fn authenticate_admin(
@@ -284,71 +607,6 @@ async fn authenticate_admin(
     result
 }
 
-fn render_admin_home(posts: Vec<PostSummary>) -> String {
-    let rows = posts
-        .into_iter()
-        .map(|post| {
-            let status = match post.status {
-                rustacian_blog_core::PostStatus::Draft => "draft",
-                rustacian_blog_core::PostStatus::Published => "published",
-            };
-            format!(
-                r#"<tr>
-<td><strong>{}</strong><div style="color:#6b7280;font-size:13px;">/{}</div></td>
-<td>{}</td>
-<td>{}</td>
-<td>{}</td>
-<td style="display:flex;gap:8px;flex-wrap:wrap;">
-<a href="/admin/preview/{}">Preview</a>
-<form method="post" action="/admin/ai/{}/metadata" style="display:inline;">
-<button type="submit">Generate AI</button>
-</form>
-</td>
-</tr>"#,
-                escape_html(&post.title),
-                escape_html(&post.slug),
-                status,
-                post.published_at.format("%Y-%m-%d"),
-                escape_html(&post.tags.join(", ")),
-                escape_html(&post.slug),
-                escape_html(&post.slug),
-            )
-        })
-        .collect::<String>();
-
-    html_document(
-        "Admin",
-        &format!(
-            r#"<main style="max-width: 1080px; margin: 40px auto; padding: 0 20px; font-family: Georgia, 'Times New Roman', serif;">
-<p style="text-transform: uppercase; letter-spacing: 0.12em; color: #b3541e; font-size: 12px;">Admin</p>
-<h1>Rustacian Blog Admin</h1>
-<p>Preview, AI metadata generation, and static regenerate are available from this dashboard.</p>
-<section style="margin:24px 0;padding:20px;border:1px solid #d9c2a3;border-radius:18px;background:#fffaf2;">
-<h2 style="margin-top:0;">Static Publish</h2>
-<form method="post" action="/admin/static/regenerate">
-<button type="submit">Regenerate Static Site</button>
-</form>
-</section>
-<section style="padding:20px;border:1px solid #d9c2a3;border-radius:18px;background:#fffaf2;overflow-x:auto;">
-<h2 style="margin-top:0;">Posts</h2>
-<table style="width:100%;border-collapse:collapse;">
-<thead>
-<tr>
-<th style="text-align:left;padding:10px;border-bottom:1px solid #d9c2a3;">Post</th>
-<th style="text-align:left;padding:10px;border-bottom:1px solid #d9c2a3;">Status</th>
-<th style="text-align:left;padding:10px;border-bottom:1px solid #d9c2a3;">Published</th>
-<th style="text-align:left;padding:10px;border-bottom:1px solid #d9c2a3;">Tags</th>
-<th style="text-align:left;padding:10px;border-bottom:1px solid #d9c2a3;">Actions</th>
-</tr>
-</thead>
-<tbody>{rows}</tbody>
-</table>
-</section>
-</main>"#
-        ),
-    )
-}
-
 fn html_response(body: String) -> HttpResponse {
     HttpResponse::Ok()
         .content_type(ContentType::html())
@@ -376,21 +634,6 @@ fn attach_admin_session_cookie(request: &HttpRequest, response: &mut HttpRespons
         .path("/")
         .finish();
     let _ = response.add_cookie(&cookie);
-}
-
-fn html_document(title: &str, body: &str) -> String {
-    format!(
-        "<!doctype html><html lang=\"ja\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>{title}</title></head><body>{body}</body></html>"
-    )
-}
-
-fn escape_html(value: &str) -> String {
-    value
-        .replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&#39;")
 }
 
 fn internal_app_error(error: BlogError) -> actix_web::Error {
@@ -453,6 +696,10 @@ fn map_summaries(posts: Vec<PostSummary>) -> Vec<rustacian_blog_frontend::PostSu
                     .map(|value| resolve_asset_url(&value, &post.slug)),
                 toc: post.toc,
                 math: post.math,
+                status: match post.status {
+                    rustacian_blog_core::PostStatus::Published => "published".to_owned(),
+                    rustacian_blog_core::PostStatus::Draft => "draft".to_owned(),
+                },
             }
         })
         .collect()
@@ -554,16 +801,19 @@ mod tests {
     use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
     use chrono::{DateTime, Utc};
     use rustacian_blog_core::{
-        AdminAuthService, AiAssistRequest, AiMetadataGenerator, GenerateAiMetadataUseCase,
-        GeneratedMetadata, GeneratedMetadataStore, GetPostUseCase, ListPostsUseCase, PostMetadata,
-        PostRepository, PostStatus, PostVisibility, PublishStaticSiteUseCase, StaticSiteBuild,
-        StaticSiteGenerator, StaticSitePublisher,
+        AdminAuthService, AiAssistRequest, AiMetadataGenerator, Comment, CommentRepository,
+        CommentStatus, ContactMessage, ContactRepository, GenerateAiMetadataUseCase,
+        GeneratedMetadata, GeneratedMetadataStore, GetPostUseCase, ListPostsUseCase,
+        NotificationEvent, NotificationSink, PostMetadata, PostRepository, PostStatus,
+        PostVisibility, PublishStaticSiteUseCase, StaticSiteBuild, StaticSiteGenerator,
+        StaticSitePublisher,
     };
 
     use super::*;
     use crate::{
         config::AppConfig,
         observability::{AppEvent, ObservabilitySink},
+        search::TantivySearchIndex,
         state::AppState,
     };
     use tempfile::tempdir;
@@ -583,6 +833,9 @@ mod tests {
     struct MockGeneratedMetadataStore;
 
     struct MockObservabilitySink;
+    struct MockNotificationSink;
+    struct MockCommentRepository;
+    struct MockContactRepository;
     struct MockStaticSiteGenerator;
     #[derive(Default)]
     struct MockStaticSitePublisher;
@@ -653,6 +906,43 @@ mod tests {
     }
 
     #[async_trait]
+    impl NotificationSink for MockNotificationSink {
+        async fn notify(&self, _event: NotificationEvent) -> Result<(), BlogError> {
+            Ok(())
+        }
+    }
+
+    #[async_trait]
+    impl CommentRepository for MockCommentRepository {
+        async fn create_comment(&self, _comment: &Comment) -> Result<(), BlogError> {
+            Ok(())
+        }
+
+        async fn list_comments(
+            &self,
+            _slug: &str,
+            _include_pending: bool,
+        ) -> Result<Vec<Comment>, BlogError> {
+            Ok(Vec::new())
+        }
+
+        async fn list_all_pending(&self) -> Result<Vec<Comment>, BlogError> {
+            Ok(Vec::new())
+        }
+
+        async fn update_status(&self, _id: &str, _status: CommentStatus) -> Result<(), BlogError> {
+            Ok(())
+        }
+    }
+
+    #[async_trait]
+    impl ContactRepository for MockContactRepository {
+        async fn create_contact_message(&self, _msg: &ContactMessage) -> Result<(), BlogError> {
+            Ok(())
+        }
+    }
+
+    #[async_trait]
     impl StaticSiteGenerator for MockStaticSiteGenerator {
         async fn generate(&self) -> Result<StaticSiteBuild, BlogError> {
             Ok(StaticSiteBuild::default())
@@ -674,6 +964,10 @@ mod tests {
                 result: Err(AdminAuthError::Disabled),
             }),
             observability: Arc::new(MockObservabilitySink),
+            notification: Arc::new(MockNotificationSink),
+            comment_repo: Arc::new(MockCommentRepository),
+            contact_repo: Arc::new(MockContactRepository),
+            search_index: Arc::new(TantivySearchIndex::new()),
             image_blob: None,
             generate_ai_metadata: None,
             publish_static_site: Some(PublishStaticSiteUseCase::new(
@@ -705,6 +999,7 @@ mod tests {
                 observability_backend: "noop".to_owned(),
                 application_insights_connection_string: None,
                 base_url: "http://127.0.0.1:8080".to_owned(),
+                slack_webhook_url: None,
             },
         }
     }
@@ -1135,5 +1430,319 @@ mod tests {
                 .and_then(|value| value.to_str().ok()),
             Some("image/svg+xml")
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // XSS / Injection sanitization tests
+    // -----------------------------------------------------------------------
+
+    #[actix_web::test]
+    async fn sanitize_strips_script_tags() {
+        let input = r#"<script>alert(1)</script>Hello"#;
+        let output = sanitize(input);
+        assert!(!output.contains("<script>"));
+        assert!(output.contains("Hello"));
+    }
+
+    #[actix_web::test]
+    async fn sanitize_strips_img_onerror() {
+        let input = r#"<img src=x onerror="alert(1)">text"#;
+        let output = sanitize(input);
+        assert!(!output.contains("onerror"));
+        assert!(output.contains("text"));
+    }
+
+    #[actix_web::test]
+    async fn sanitize_strips_all_html_tags() {
+        let input = r#"<b>bold</b> <i>italic</i> <a href="http://evil.com">click</a>"#;
+        let output = sanitize(input);
+        assert!(!output.contains('<'));
+        assert!(output.contains("bold"));
+        assert!(output.contains("italic"));
+        assert!(output.contains("click"));
+    }
+
+    #[actix_web::test]
+    async fn sanitize_preserves_plain_text() {
+        let input = "普通のコメントです。Rust is great!";
+        assert_eq!(sanitize(input), input);
+    }
+
+    // -----------------------------------------------------------------------
+    // Comment route tests
+    // -----------------------------------------------------------------------
+
+    #[actix_web::test]
+    async fn post_comment_redirects_after_success() {
+        let state = app_state(Arc::new(MockRepository {
+            list_result: Ok(Vec::new()),
+            get_result: Ok(sample_post()),
+        }));
+        let app =
+            test::init_service(App::new().app_data(web::Data::new(state)).configure(routes)).await;
+
+        let response = test::call_service(
+            &app,
+            test::TestRequest::post()
+                .uri("/posts/sample/comments")
+                .set_form([("author_name", "Alice"), ("content", "Great post!")])
+                .to_request(),
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::SEE_OTHER);
+        assert_eq!(
+            response
+                .headers()
+                .get("location")
+                .and_then(|v| v.to_str().ok()),
+            Some("/posts/sample/comments")
+        );
+    }
+
+    #[actix_web::test]
+    async fn list_post_comments_returns_html() {
+        let state = app_state(Arc::new(MockRepository {
+            list_result: Ok(Vec::new()),
+            get_result: Ok(sample_post()),
+        }));
+        let app =
+            test::init_service(App::new().app_data(web::Data::new(state)).configure(routes)).await;
+
+        let response = test::call_service(
+            &app,
+            test::TestRequest::get()
+                .uri("/posts/sample/comments")
+                .to_request(),
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[actix_web::test]
+    async fn contact_page_returns_html() {
+        let state = app_state(Arc::new(MockRepository {
+            list_result: Ok(Vec::new()),
+            get_result: Ok(sample_post()),
+        }));
+        let app =
+            test::init_service(App::new().app_data(web::Data::new(state)).configure(routes)).await;
+
+        let response =
+            test::call_service(&app, test::TestRequest::get().uri("/contact").to_request()).await;
+
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[actix_web::test]
+    async fn post_contact_redirects_after_success() {
+        let state = app_state(Arc::new(MockRepository {
+            list_result: Ok(Vec::new()),
+            get_result: Ok(sample_post()),
+        }));
+        let app =
+            test::init_service(App::new().app_data(web::Data::new(state)).configure(routes)).await;
+
+        let response = test::call_service(
+            &app,
+            test::TestRequest::post()
+                .uri("/contact")
+                .set_form([
+                    ("from_name", "Bob"),
+                    ("from_email", "bob@example.com"),
+                    ("body", "Hello!"),
+                ])
+                .to_request(),
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::SEE_OTHER);
+    }
+
+    #[actix_web::test]
+    async fn admin_comments_requires_auth() {
+        let state = app_state(Arc::new(MockRepository {
+            list_result: Ok(Vec::new()),
+            get_result: Ok(sample_post()),
+        }));
+        let app =
+            test::init_service(App::new().app_data(web::Data::new(state)).configure(routes)).await;
+
+        let response = test::call_service(
+            &app,
+            test::TestRequest::get().uri("/admin/comments").to_request(),
+        )
+        .await;
+
+        // auth disabled → 501 (admin not configured)
+        assert_eq!(response.status(), StatusCode::NOT_IMPLEMENTED);
+    }
+
+    // -----------------------------------------------------------------------
+    // Admin UI — Phase 6 tests
+    // -----------------------------------------------------------------------
+
+    #[actix_web::test]
+    async fn admin_dashboard_contains_post_table() {
+        let state = app_state_with_local_dev_auth(Arc::new(MockRepository {
+            list_result: Ok(vec![sample_post().summary()]),
+            get_result: Ok(sample_post()),
+        }));
+        let app =
+            test::init_service(App::new().app_data(web::Data::new(state)).configure(routes)).await;
+
+        let response =
+            test::call_service(&app, test::TestRequest::get().uri("/admin").to_request()).await;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = test::read_body(response).await;
+        let html = String::from_utf8(body.to_vec()).unwrap();
+        assert!(html.contains("ダッシュボード") || html.contains("Rustacian"));
+        assert!(html.contains("sample") || html.contains("Sample"));
+    }
+
+    #[actix_web::test]
+    async fn admin_post_detail_returns_html_for_published_post() {
+        let state = app_state_with_local_dev_auth(Arc::new(MockRepository {
+            list_result: Ok(Vec::new()),
+            get_result: Ok(sample_post()),
+        }));
+        let app =
+            test::init_service(App::new().app_data(web::Data::new(state)).configure(routes)).await;
+
+        let response = test::call_service(
+            &app,
+            test::TestRequest::get()
+                .uri("/admin/posts/sample")
+                .to_request(),
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = test::read_body(response).await;
+        let html = String::from_utf8(body.to_vec()).unwrap();
+        assert!(html.contains("Sample"));
+    }
+
+    #[actix_web::test]
+    async fn admin_post_detail_requires_auth() {
+        let state = app_state_with_admin_auth(Arc::new(MockRepository {
+            list_result: Ok(Vec::new()),
+            get_result: Ok(sample_post()),
+        }));
+        let app =
+            test::init_service(App::new().app_data(web::Data::new(state)).configure(routes)).await;
+
+        let response = test::call_service(
+            &app,
+            test::TestRequest::get()
+                .uri("/admin/posts/sample")
+                .to_request(),
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[actix_web::test]
+    async fn admin_static_panel_returns_html() {
+        let state = app_state_with_local_dev_auth(Arc::new(MockRepository {
+            list_result: Ok(Vec::new()),
+            get_result: Ok(sample_post()),
+        }));
+        let app =
+            test::init_service(App::new().app_data(web::Data::new(state)).configure(routes)).await;
+
+        let response = test::call_service(
+            &app,
+            test::TestRequest::get().uri("/admin/static").to_request(),
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = test::read_body(response).await;
+        let html = String::from_utf8(body.to_vec()).unwrap();
+        assert!(html.contains("再生成") || html.contains("static/regenerate"));
+    }
+
+    #[actix_web::test]
+    async fn admin_static_panel_requires_auth() {
+        let state = app_state_with_admin_auth(Arc::new(MockRepository {
+            list_result: Ok(Vec::new()),
+            get_result: Ok(sample_post()),
+        }));
+        let app =
+            test::init_service(App::new().app_data(web::Data::new(state)).configure(routes)).await;
+
+        let response = test::call_service(
+            &app,
+            test::TestRequest::get().uri("/admin/static").to_request(),
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[actix_web::test]
+    async fn search_page_returns_html_for_empty_query() {
+        let state = app_state(Arc::new(MockRepository {
+            list_result: Ok(Vec::new()),
+            get_result: Ok(sample_post()),
+        }));
+        let app =
+            test::init_service(App::new().app_data(web::Data::new(state)).configure(routes)).await;
+
+        let response =
+            test::call_service(&app, test::TestRequest::get().uri("/search").to_request()).await;
+
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[actix_web::test]
+    async fn search_page_returns_html_for_query_with_no_results() {
+        let state = app_state(Arc::new(MockRepository {
+            list_result: Ok(Vec::new()),
+            get_result: Ok(sample_post()),
+        }));
+        let app =
+            test::init_service(App::new().app_data(web::Data::new(state)).configure(routes)).await;
+
+        let response = test::call_service(
+            &app,
+            test::TestRequest::get().uri("/search?q=rust").to_request(),
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = test::read_body(response).await;
+        let html = String::from_utf8(body.to_vec()).unwrap();
+        assert!(html.contains("検索"));
+    }
+
+    #[actix_web::test]
+    async fn admin_comments_accessible_with_auth() {
+        let state = app_state_with_admin_auth(Arc::new(MockRepository {
+            list_result: Ok(Vec::new()),
+            get_result: Ok(sample_post()),
+        }));
+        let app =
+            test::init_service(App::new().app_data(web::Data::new(state)).configure(routes)).await;
+
+        let response = test::call_service(
+            &app,
+            test::TestRequest::get()
+                .uri("/admin/comments")
+                .insert_header((
+                    "authorization",
+                    bearer_for(
+                        r#"{"aud":"client-123","tid":"tenant-123","groups":["group-123"],"oid":"user-1"}"#,
+                    ),
+                ))
+                .to_request(),
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::OK);
     }
 }

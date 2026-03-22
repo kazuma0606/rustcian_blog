@@ -2,6 +2,32 @@ use leptos::prelude::*;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SearchResultView {
+    pub slug: String,
+    pub title: String,
+    pub excerpt: String,
+    pub tags: Vec<String>,
+    pub date: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GeneratedMetadataView {
+    pub summary_ai: Option<String>,
+    pub suggested_tags: Vec<String>,
+    pub intro_candidates: Vec<String>,
+    pub generated_at: String,
+    pub source_model: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CommentView {
+    pub id: String,
+    pub author_name: String,
+    pub content: String,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TocItemView {
     pub level: u8,
     pub title: String,
@@ -38,6 +64,9 @@ pub struct PostSummaryView {
     pub hero_image: Option<String>,
     pub toc: bool,
     pub math: bool,
+    /// "published" | "draft"
+    #[serde(default)]
+    pub status: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -95,6 +124,429 @@ pub fn render_post_page(post: PostView) -> String {
     let enable_mermaid = post.body_html.contains("class=\"mermaid\"");
     let body = view! { <PostPage post=post/> }.to_html();
     wrap_document(&title, &body, enable_math, enable_mermaid)
+}
+
+pub fn render_comment_list(slug: &str, comments: Vec<CommentView>) -> String {
+    let list = if comments.is_empty() {
+        "<p style=\"color:var(--muted);font-size:14px;\">まだコメントはありません。</p>".to_owned()
+    } else {
+        comments
+            .iter()
+            .map(|c| {
+                format!(
+                    r#"<div style="padding:16px 0;border-bottom:1px solid var(--line);">
+<div style="font-size:13px;color:var(--muted);margin-bottom:4px;">{} · {}</div>
+<div style="line-height:1.7;">{}</div>
+</div>"#,
+                    esc(&c.author_name),
+                    esc(&c.created_at),
+                    esc(&c.content),
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+
+    let slug_escaped = esc(slug);
+    let body = format!(
+        r#"<div class="shell">
+<div class="hero" style="max-width:720px;margin:40px auto;">
+  <p class="eyebrow" style="text-transform:uppercase;letter-spacing:0.12em;color:var(--accent);font-size:12px;">Comments</p>
+  <h2 style="margin-top:4px;margin-bottom:20px;">コメント一覧</h2>
+  {list}
+  <h3 style="margin-top:32px;margin-bottom:12px;">コメントを投稿</h3>
+  <form method="post" action="/posts/{slug_escaped}/comments" style="display:flex;flex-direction:column;gap:12px;">
+    <input name="author_name" placeholder="名前" required
+      style="padding:10px 14px;border:1px solid var(--line);border-radius:10px;background:var(--bg);font-family:inherit;font-size:15px;">
+    <textarea name="content" placeholder="コメント本文" rows="4" required
+      style="padding:10px 14px;border:1px solid var(--line);border-radius:10px;background:var(--bg);font-family:inherit;font-size:15px;resize:vertical;"></textarea>
+    <button type="submit"
+      style="align-self:flex-start;padding:10px 24px;background:var(--accent);color:#fff;border:none;border-radius:10px;cursor:pointer;font-family:inherit;font-size:15px;">
+      投稿
+    </button>
+  </form>
+</div>
+</div>"#
+    );
+    wrap_document("コメント", &body, false, false)
+}
+
+pub fn render_contact_page() -> String {
+    let body = r#"<div class="shell">
+<div class="hero" style="max-width:640px;margin:40px auto;">
+  <p class="eyebrow" style="text-transform:uppercase;letter-spacing:0.12em;color:var(--accent);font-size:12px;">Contact</p>
+  <h1 style="margin-top:4px;margin-bottom:8px;">お問い合わせ</h1>
+  <p style="color:var(--muted);margin-bottom:24px;font-size:15px;">ご質問・ご意見はこちらからお送りください。</p>
+  <form method="post" action="/contact" style="display:flex;flex-direction:column;gap:14px;">
+    <label style="display:flex;flex-direction:column;gap:4px;font-size:14px;color:var(--muted);">
+      お名前
+      <input name="from_name" placeholder="山田 太郎" required
+        style="padding:10px 14px;border:1px solid var(--line);border-radius:10px;background:var(--bg);font-family:inherit;font-size:15px;color:var(--text);">
+    </label>
+    <label style="display:flex;flex-direction:column;gap:4px;font-size:14px;color:var(--muted);">
+      メールアドレス
+      <input name="from_email" type="email" placeholder="you@example.com" required
+        style="padding:10px 14px;border:1px solid var(--line);border-radius:10px;background:var(--bg);font-family:inherit;font-size:15px;color:var(--text);">
+    </label>
+    <label style="display:flex;flex-direction:column;gap:4px;font-size:14px;color:var(--muted);">
+      お問い合わせ内容
+      <textarea name="body" rows="6" placeholder="ご質問・ご意見をお書きください" required
+        style="padding:10px 14px;border:1px solid var(--line);border-radius:10px;background:var(--bg);font-family:inherit;font-size:15px;color:var(--text);resize:vertical;"></textarea>
+    </label>
+    <button type="submit"
+      style="align-self:flex-start;padding:10px 28px;background:var(--accent);color:#fff;border:none;border-radius:10px;cursor:pointer;font-family:inherit;font-size:16px;">
+      送信
+    </button>
+  </form>
+</div>
+</div>"#;
+    wrap_document("お問い合わせ", body, false, false)
+}
+
+pub fn render_search_page(query: &str, results: Vec<SearchResultView>) -> String {
+    let query_escaped = esc(query);
+    let results_html = if query.is_empty() {
+        String::new()
+    } else if results.is_empty() {
+        format!(
+            "<p style=\"color:var(--muted);font-size:15px;\">「{}」に一致する記事は見つかりませんでした。</p>",
+            query_escaped
+        )
+    } else {
+        results
+            .iter()
+            .map(|r| {
+                let tags = r
+                    .tags
+                    .iter()
+                    .map(|t| {
+                        format!(
+                            "<span class=\"tag\" style=\"font-size:12px;padding:3px 10px;\">{}</span>",
+                            esc(t)
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                format!(
+                    r#"<a href="/p/{slug}" class="card" style="text-decoration:none;color:inherit;">
+  <div style="font-size:13px;color:var(--muted);">{date}</div>
+  <div style="font-size:18px;font-weight:600;">{title}</div>
+  <div style="font-size:14px;color:var(--muted);line-height:1.6;">{excerpt}</div>
+  <div class="tags" style="margin-top:6px;">{tags}</div>
+</a>"#,
+                    slug = esc(&r.slug),
+                    date = esc(&r.date),
+                    title = esc(&r.title),
+                    excerpt = esc(&r.excerpt),
+                    tags = tags,
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+
+    let count_line = if !query.is_empty() && !results.is_empty() {
+        format!(
+            "<p style=\"color:var(--muted);font-size:14px;\">{} 件の検索結果</p>",
+            results.len()
+        )
+    } else {
+        String::new()
+    };
+
+    let body = format!(
+        r#"<div class="shell">
+<div style="max-width:720px;margin:0 auto;">
+  <p class="eyebrow" style="text-transform:uppercase;letter-spacing:0.12em;color:var(--accent);font-size:12px;">Search</p>
+  <h1 style="margin-top:4px;margin-bottom:20px;">記事を検索</h1>
+  <form method="get" action="/search" style="display:flex;gap:10px;margin-bottom:24px;">
+    <input name="q" value="{query_escaped}" placeholder="キーワードを入力…" autofocus
+      style="flex:1;padding:10px 14px;border:1px solid var(--line);border-radius:10px;background:var(--bg);font-family:inherit;font-size:15px;color:var(--text);">
+    <button type="submit"
+      style="padding:10px 22px;background:var(--accent);color:#fff;border:none;border-radius:10px;cursor:pointer;font-family:inherit;font-size:15px;">
+      検索
+    </button>
+  </form>
+  {count_line}
+  <div class="posts">{results_html}</div>
+</div>
+</div>"#
+    );
+    wrap_document("検索", &body, false, false)
+}
+
+// ---------------------------------------------------------------------------
+// Admin UI render functions
+// ---------------------------------------------------------------------------
+
+const ADMIN_CSS: &str = r#"
+  :root {
+    --bg: #f7f1e7; --surface: #fffaf2; --text: #1f2933;
+    --accent: #b3541e; --accent-soft: #fde9d6;
+    --muted: #6b5744; --line: #d9c2a3;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); font-family: Georgia, 'Times New Roman', serif; color: var(--text); }
+  a { color: var(--accent); }
+  .shell { max-width: 1100px; margin: 0 auto; padding: 32px 20px 72px; }
+  .eyebrow { letter-spacing: 0.12em; text-transform: uppercase; font-size: 12px; color: var(--accent); }
+  nav { display: flex; gap: 18px; margin-bottom: 28px; font-size: 14px; flex-wrap: wrap; }
+  nav a { text-decoration: none; padding: 6px 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+  nav a:hover { background: var(--accent-soft); }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th { text-align: left; padding: 10px 8px; border-bottom: 2px solid var(--line); }
+  td { padding: 10px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  .badge { display: inline-flex; align-items: center; padding: 3px 10px; border-radius: 999px; font-size: 12px; }
+  .badge-pub { background: #d1fae5; color: #065f46; }
+  .badge-draft { background: #fef3c7; color: #92400e; }
+  .btn { display: inline-block; padding: 7px 16px; border-radius: 8px; border: none; cursor: pointer; font-family: inherit; font-size: 13px; text-decoration: none; }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-success { background: #2a7a3b; color: #fff; }
+  .btn-danger  { background: #b3541e; color: #fff; }
+  .btn-outline { background: transparent; border: 1px solid var(--line); color: var(--text); }
+  .card { padding: 22px; border: 1px solid var(--line); border-radius: 18px; background: var(--surface); margin-bottom: 18px; }
+"#;
+
+fn admin_document(title: &str, body: &str) -> String {
+    format!(
+        r#"<!doctype html>
+<html lang="ja"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{title} — Admin</title>
+<style>{ADMIN_CSS}</style>
+</head><body>{body}</body></html>"#
+    )
+}
+
+fn admin_nav() -> &'static str {
+    r#"<nav>
+  <a href="/admin">ダッシュボード</a>
+  <a href="/admin/comments">コメント</a>
+  <a href="/admin/static">静的サイト</a>
+</nav>"#
+}
+
+pub fn render_admin_dashboard(posts: Vec<PostSummaryView>) -> String {
+    let rows: String = posts
+        .iter()
+        .map(|p| {
+            let badge = if p.status == "published" {
+                r#"<span class="badge badge-pub">published</span>"#
+            } else {
+                r#"<span class="badge badge-draft">draft</span>"#
+            };
+            let tags = esc(&p.tags.join(", "));
+            format!(
+                r#"<tr>
+<td><strong>{title}</strong><div style="color:var(--muted);font-size:12px;">/{slug}</div></td>
+<td>{badge}</td>
+<td>{date}</td>
+<td style="max-width:200px;">{tags}</td>
+<td style="display:flex;gap:6px;flex-wrap:wrap;">
+  <a href="/admin/posts/{slug}" class="btn btn-outline">詳細</a>
+  <a href="/admin/preview/{slug}" class="btn btn-outline">Preview</a>
+  <form method="post" action="/admin/ai/{slug}/metadata" style="display:inline;">
+    <button type="submit" class="btn btn-outline">AI生成</button>
+  </form>
+</td>
+</tr>"#,
+                title = esc(&p.title),
+                slug = esc(&p.slug),
+                badge = badge,
+                date = esc(&p.published_at),
+                tags = tags,
+            )
+        })
+        .collect();
+
+    let body = format!(
+        r#"<div class="shell">
+<p class="eyebrow">Admin</p>
+<h1 style="margin:4px 0 20px;">Rustacian Blog</h1>
+{nav}
+<div class="card" style="overflow-x:auto;">
+  <h2 style="margin-top:0;">記事一覧 ({count} 件)</h2>
+  <table>
+    <thead><tr>
+      <th>タイトル / スラッグ</th><th>ステータス</th>
+      <th>公開日</th><th>タグ</th><th>操作</th>
+    </tr></thead>
+    <tbody>{rows}</tbody>
+  </table>
+</div>
+</div>"#,
+        nav = admin_nav(),
+        count = posts.len(),
+        rows = rows,
+    );
+    admin_document("ダッシュボード", &body)
+}
+
+pub fn render_admin_post_detail(post: PostView, metadata: Option<GeneratedMetadataView>) -> String {
+    let status_badge = if post.body_html.is_empty() {
+        r#"<span class="badge badge-draft">draft</span>"#
+    } else {
+        r#"<span class="badge badge-pub">published</span>"#
+    };
+    let tags = esc(&post.tags.join(", "));
+
+    let metadata_card = if let Some(m) = &metadata {
+        let summary = m.summary_ai.as_deref().map(esc).unwrap_or_default();
+        let suggested = esc(&m.suggested_tags.join(", "));
+        let intros: String = m
+            .intro_candidates
+            .iter()
+            .enumerate()
+            .map(|(i, s)| {
+                format!(
+                    "<li style=\"margin-bottom:8px;\"><strong>案{}:</strong> {}</li>",
+                    i + 1,
+                    esc(s)
+                )
+            })
+            .collect();
+        let model = m.source_model.as_deref().map(esc).unwrap_or_default();
+        format!(
+            r#"<div class="card">
+  <h2 style="margin-top:0;">AI 生成メタデータ</h2>
+  <p style="font-size:13px;color:var(--muted);">生成日時: {} | モデル: {}</p>
+  <p><strong>要約:</strong> {}</p>
+  <p><strong>推奨タグ:</strong> {}</p>
+  <ul style="line-height:1.8;">{}</ul>
+</div>"#,
+            esc(&m.generated_at),
+            model,
+            summary,
+            suggested,
+            intros,
+        )
+    } else {
+        r#"<div class="card" style="color:var(--muted);">
+  <p>AI メタデータはまだ生成されていません。</p>
+</div>"#
+            .to_owned()
+    };
+
+    let body = format!(
+        r#"<div class="shell">
+<p class="eyebrow">Admin / 記事詳細</p>
+<h1 style="margin:4px 0 6px;">{title}</h1>
+{nav}
+<div class="card">
+  <table style="font-size:14px;">
+    <tr><td style="color:var(--muted);padding-right:16px;">スラッグ</td><td>/{slug}</td></tr>
+    <tr><td style="color:var(--muted);">ステータス</td><td>{status_badge}</td></tr>
+    <tr><td style="color:var(--muted);">公開日</td><td>{date}</td></tr>
+    <tr><td style="color:var(--muted);">タグ</td><td>{tags}</td></tr>
+  </table>
+  <div style="margin-top:16px;display:flex;gap:10px;flex-wrap:wrap;">
+    <a href="/admin/preview/{slug}" class="btn btn-outline">Preview</a>
+    <form method="post" action="/admin/ai/{slug}/metadata" style="display:inline;">
+      <button type="submit" class="btn btn-primary">AI メタデータ生成</button>
+    </form>
+    <a href="/admin" class="btn btn-outline">← ダッシュボード</a>
+  </div>
+</div>
+{metadata_card}
+</div>"#,
+        title = esc(&post.title),
+        slug = esc(&post.slug),
+        nav = admin_nav(),
+        status_badge = status_badge,
+        date = esc(&post.published_at),
+        tags = tags,
+        metadata_card = metadata_card,
+    );
+    admin_document(&esc(&post.title), &body)
+}
+
+pub fn render_admin_comments(pending: Vec<CommentView>) -> String {
+    let rows: String = if pending.is_empty() {
+        String::from(
+            r#"<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:24px 0;">承認待ちのコメントはありません。</td></tr>"#,
+        )
+    } else {
+        pending
+            .iter()
+            .map(|c| {
+                format!(
+                    r#"<tr>
+<td style="font-size:13px;">{slug}</td>
+<td>{author}</td>
+<td style="max-width:320px;word-break:break-word;">{content}</td>
+<td style="font-size:13px;color:var(--muted);">{date}</td>
+<td style="display:flex;gap:6px;">
+  <form method="post" action="/admin/comments/{id}/approve" style="display:inline;">
+    <button type="submit" class="btn btn-success">承認</button>
+  </form>
+  <form method="post" action="/admin/comments/{id}/reject" style="display:inline;">
+    <button type="submit" class="btn btn-danger">却下</button>
+  </form>
+</td>
+</tr>"#,
+                    slug = esc(&c.id), // id is displayed in action URLs; show post info from author context
+                    author = esc(&c.author_name),
+                    content = esc(&c.content),
+                    date = esc(&c.created_at),
+                    id = esc(&c.id),
+                )
+            })
+            .collect()
+    };
+
+    let body = format!(
+        r#"<div class="shell">
+<p class="eyebrow">Admin</p>
+<h1 style="margin:4px 0 20px;">コメントモデレーション</h1>
+{nav}
+<div class="card" style="overflow-x:auto;">
+  <h2 style="margin-top:0;">承認待ち ({count} 件)</h2>
+  <table>
+    <thead><tr>
+      <th>ID</th><th>投稿者</th><th>内容</th><th>投稿日時</th><th>操作</th>
+    </tr></thead>
+    <tbody>{rows}</tbody>
+  </table>
+</div>
+</div>"#,
+        nav = admin_nav(),
+        count = pending.len(),
+        rows = rows,
+    );
+    admin_document("コメントモデレーション", &body)
+}
+
+pub fn render_admin_static_panel() -> String {
+    let body = format!(
+        r#"<div class="shell">
+<p class="eyebrow">Admin</p>
+<h1 style="margin:4px 0 20px;">静的サイト管理</h1>
+{nav}
+<div class="card" style="max-width:480px;">
+  <h2 style="margin-top:0;">静的サイト再生成</h2>
+  <p style="color:var(--muted);font-size:14px;margin-bottom:20px;">
+    公開中の全記事を再レンダリングし、静的ファイルを生成します。<br>
+    完了後に Slack 通知が届きます。
+  </p>
+  <form method="post" action="/admin/static/regenerate">
+    <button type="submit" class="btn btn-primary" style="font-size:15px;padding:10px 24px;">
+      今すぐ再生成
+    </button>
+  </form>
+</div>
+</div>"#,
+        nav = admin_nav(),
+    );
+    admin_document("静的サイト管理", &body)
+}
+
+fn esc(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#39;")
 }
 
 fn render_posts_shell(
@@ -933,6 +1385,7 @@ mod tests {
                 hero_image: None,
                 toc: false,
                 math: false,
+                status: "published".to_owned(),
             }],
         );
 

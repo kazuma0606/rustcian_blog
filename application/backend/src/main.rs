@@ -6,15 +6,21 @@ use rustacian_blog_backend::{
     ai::{build_ai_metadata_generator, build_generated_metadata_store},
     auth::build_admin_auth_service,
     blob::AzuriteBlobAdapter,
+    comment_store::{
+        AzuriteCommentRepository, AzuriteContactRepository, build_comment_repository,
+        build_contact_repository,
+    },
     config::AppConfig,
+    notification::build_notification_sink,
     observability::{AppEvent, build_observability_sink},
     presentation,
+    search::TantivySearchIndex,
     state::AppState,
     static_site::{LocalFileAssetStore, LocalStaticSiteGenerator, build_static_site_publisher},
     storage::{AzuritePostRepository, LocalContentPostRepository, seed_azurite_from_local},
 };
 use rustacian_blog_core::{
-    GenerateAiMetadataUseCase, GetPostUseCase, ListPostsUseCase, PostRepository,
+    GenerateAiMetadataUseCase, GetPostUseCase, ListPostsUseCase, PostRepository, PostVisibility,
     PublishStaticSiteUseCase,
 };
 
@@ -36,6 +42,39 @@ async fn main() -> std::io::Result<()> {
         }
         _ => Arc::new(LocalContentPostRepository::new(config.content_root.clone())),
     };
+
+    // Initialize Azurite Table Storage tables if needed.
+    if let Some(endpoint) = &config.azurite_table_endpoint {
+        AzuriteCommentRepository::new(endpoint.clone())
+            .init()
+            .await
+            .expect("failed to create comments table");
+        AzuriteContactRepository::new(endpoint.clone())
+            .init()
+            .await
+            .expect("failed to create contacts table");
+    }
+
+    // Build initial search index from all published posts.
+    let search_index = Arc::new(TantivySearchIndex::new());
+    {
+        let slugs = repository
+            .list_posts(PostVisibility::PublishedOnly)
+            .await
+            .unwrap_or_default();
+        let mut posts = Vec::with_capacity(slugs.len());
+        for s in &slugs {
+            if let Ok(post) = repository
+                .get_post(&s.slug, PostVisibility::PublishedOnly)
+                .await
+            {
+                posts.push(post);
+            }
+        }
+        if let Err(e) = search_index.rebuild(&posts) {
+            eprintln!("warn: search index build failed: {e}");
+        }
+    }
 
     let static_generator = Arc::new(LocalStaticSiteGenerator::new(
         repository.clone(),
@@ -59,6 +98,10 @@ async fn main() -> std::io::Result<()> {
         )),
         admin_auth: build_admin_auth_service(&config),
         observability: build_observability_sink(&config),
+        notification: build_notification_sink(&config),
+        comment_repo: build_comment_repository(&config),
+        contact_repo: build_contact_repository(&config),
+        search_index,
         image_blob: config
             .azurite_blob_endpoint
             .clone()
