@@ -7,6 +7,7 @@ This repository currently includes:
 - `v1.5`: CI and security baseline
 - `v2`: content operations, math, charts, AI assist, and admin preview PoC
 - `v3`: static public site + dynamic admin preparation for Azure migration
+- `v4`: full-stack features and Azure deployment readiness
 
 ## Features
 - Rust workspace layout
@@ -15,9 +16,17 @@ This repository currently includes:
 - Git-managed content with `post.md` + `meta.yml`
 - Static public output generation
 - Dynamic `/admin` preview / AI / regenerate routes
-- Azurite-backed local Blob workflow
+- Azurite-backed local Blob and Table Storage workflow
 - Markdown features for math, charts, tables, SVG/JPG/PNG images, and Mermaid
 - GitHub Actions for CI and static build workflow
+
+### v4 Additions
+- **Slack notifications** — `StaticSiteRebuilt`, `CommentReceived`, `ContactFormSubmitted`, `AiMetadataGenerated` events via Incoming Webhooks
+- **Comments & contact form** — Reader interaction with moderation queue; XSS protection via `ammonia`; Azure Table Storage persistence
+- **Full-text search** — Pure Rust Tantivy in-memory index; JS-free `GET /search?q=` endpoint; index rebuilt on static regeneration
+- **Application Insights** — Azure Monitor Track API integration; `stdout` fallback for local dev; fire-and-forget async emit
+- **Terraform IaC** — Complete `azurerm` module set (storage, app, monitoring, keyvault, openai, comms); RBAC-based Key Vault; managed identity app settings
+- **Admin UI** — Leptos SSR render functions for dashboard, post detail, comment moderation, and static panel; warm beige/brown design
 
 ## Workspace
 ```text
@@ -54,8 +63,10 @@ cargo run -p rustacian_blog_backend
 Open:
 - `http://127.0.0.1:8080/`
 - `http://127.0.0.1:8080/p/hello-rustacian-blog`
-- `http://127.0.0.1:8080/p/actix-and-leptos`
+- `http://127.0.0.1:8080/search?q=rust`
+- `http://127.0.0.1:8080/contact`
 - `http://127.0.0.1:8080/admin`
+- `http://127.0.0.1:8080/admin/static`
 - `http://127.0.0.1:8080/health`
 
 ## Static Build
@@ -123,9 +134,10 @@ GitHub Actions runs:
 
 ## Docs
 - [Root plan](./plan.md)
-- [v2 plan](./v2/plan.md)
-- [v2 tasks](./v2/tasks.md)
-- [v2 spec](./v2/spec.md)
+- [v4 plan](./v4/plan.md)
+- [v4 tasks](./v4/tasks.md)
+- [v4 spec](./v4/spec.md)
+- [v4 Azure boundaries](./v4/azure-boundaries.md)
 - [v3 plan](./v3/plan.md)
 - [v3 tasks](./v3/tasks.md)
 - [v3 spec](./v3/spec.md)

@@ -230,12 +230,12 @@
 
 ### 3.9 CI/CD
 
-- [ ] `v4.0_dev` ブランチを作成する
+- [x] `v4.0_dev` ブランチを作成する
 - [ ] Phase ごとに feature ブランチを切り、PR → master のフローで進める
 
 ---
 
 ### 3.10 Docs
-- [ ] `v4/spec.md` を整備する（各 Phase の詳細仕様）
-- [ ] README に v4 の機能と実行方法を追記する
-- [ ] `.env.local.example` を v4 の全環境変数で更新する
+- [x] `v4/spec.md` を整備する（各 Phase の詳細仕様）
+- [x] README に v4 の機能と実行方法を追記する
+- [x] `.env.local.example` を v4 の全環境変数で更新する
