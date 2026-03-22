@@ -4,6 +4,7 @@ use actix_files::Files;
 use actix_web::{App, HttpServer, web};
 use rustacian_blog_backend::{
     ai::{build_ai_metadata_generator, build_generated_metadata_store},
+    analytics_writer::AnalyticsWriter,
     auth::build_admin_auth_service,
     blob::AzuriteBlobAdapter,
     comment_store::{
@@ -106,6 +107,10 @@ async fn main() -> std::io::Result<()> {
             .azurite_blob_endpoint
             .clone()
             .map(AzuriteBlobAdapter::new),
+        analytics: config
+            .azurite_table_endpoint
+            .clone()
+            .map(|ep| Arc::new(AnalyticsWriter::new(ep))),
         config: config.clone(),
     };
     let bind_address = config.bind_address();

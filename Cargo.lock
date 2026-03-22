@@ -2982,6 +2982,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "rustacian_blog_analytics"
+version = "0.1.0"
+dependencies = [
+ "actix-web",
+ "base64",
+ "chrono",
+ "dotenvy",
+ "hmac",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tokio",
+ "urlencoding",
+]
+
+[[package]]
 name = "rustacian_blog_backend"
 version = "0.1.0"
 dependencies = [
