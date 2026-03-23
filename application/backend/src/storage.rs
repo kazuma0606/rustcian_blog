@@ -1207,6 +1207,7 @@ status: draft
             updated_at: None,
             tags: vec!["rust".to_owned()],
             summary: "summary".to_owned(),
+            description: None,
             hero_image: None,
             status: PostStatus::Published,
             toc: false,

@@ -108,9 +108,19 @@ async fn get_post(path: web::Path<String>, data: web::Data<AppState>) -> Result<
     Ok(HttpResponse::Ok().json(post))
 }
 
+const PER_PAGE: usize = 10;
+
+#[derive(serde::Deserialize, Default)]
+struct PageQuery {
+    page: Option<usize>,
+}
+
 #[get("/")]
-async fn index_page(data: web::Data<AppState>) -> Result<HttpResponse> {
-    let posts = data
+async fn index_page(
+    query: web::Query<PageQuery>,
+    data: web::Data<AppState>,
+) -> Result<HttpResponse> {
+    let all_posts = data
         .list_posts
         .execute()
         .await
@@ -120,7 +130,17 @@ async fn index_page(data: web::Data<AppState>) -> Result<HttpResponse> {
         slug: None,
     });
 
-    Ok(html_response(render_posts_page(map_summaries(posts))))
+    let total = all_posts.len();
+    let total_pages = total.div_ceil(PER_PAGE);
+    let page = query.page.unwrap_or(1).max(1).min(total_pages.max(1));
+    let start = (page - 1) * PER_PAGE;
+    let posts = all_posts.into_iter().skip(start).take(PER_PAGE).collect();
+
+    Ok(html_response(render_posts_page(
+        map_summaries(posts),
+        page,
+        total_pages,
+    )))
 }
 
 #[get("/p/{slug}")]
@@ -1035,12 +1055,14 @@ fn map_summaries(posts: Vec<PostSummary>) -> Vec<rustacian_blog_frontend::PostSu
                     .map(|date| date.format("%Y-%m-%d").to_string()),
                 tags: post.tags,
                 summary: post.summary,
+                description: post.description,
                 hero_image: post
                     .hero_image
                     .map(|value| resolve_asset_url(&value, &post.slug)),
                 toc: post.toc,
                 math: post.math,
                 summary_ai: post.summary_ai,
+                read_minutes: post.read_minutes,
                 status: match post.status {
                     rustacian_blog_core::PostStatus::Published => "published".to_owned(),
                     rustacian_blog_core::PostStatus::Draft => "draft".to_owned(),
@@ -1071,10 +1093,12 @@ async fn en_index(data: web::Data<AppState>) -> Result<HttpResponse> {
             updated_at: s.updated_at.map(|d| d.format("%Y-%m-%d").to_string()),
             tags: s.tags,
             summary: s.summary,
+            description: s.description,
             hero_image: None,
             toc: false,
             math: false,
             summary_ai: s.summary_ai,
+            read_minutes: s.read_minutes,
             status: "published".to_owned(),
         })
         .collect();
@@ -1174,12 +1198,14 @@ fn map_post(post: Post) -> rustacian_blog_frontend::PostView {
             .map(|date| date.format("%Y-%m-%d").to_string()),
         tags: post.tags,
         summary: post.summary,
+        description: post.description,
         hero_image: post
             .hero_image
             .map(|value| resolve_asset_url(&value, &slug)),
         toc: post.toc,
         math: post.math,
         summary_ai: post.summary_ai,
+        read_minutes: post.read_minutes,
         charts: post
             .chart_data
             .into_iter()
@@ -1525,6 +1551,7 @@ mod tests {
                 updated_at: None,
                 tags: vec!["rust".to_owned()],
                 summary: "summary".to_owned(),
+                description: None,
                 hero_image: None,
                 status: PostStatus::Published,
                 toc: false,

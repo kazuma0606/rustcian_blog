@@ -161,7 +161,7 @@ impl StaticSiteGenerator for LocalStaticSiteGenerator {
             .await?;
         let mut pages = vec![StaticPage {
             path: "index.html".to_owned(),
-            content: render_posts_page(map_summaries(summaries.clone())),
+            content: render_posts_page(map_summaries(summaries.clone()), 1, 1),
         }];
         let mut assets = self.asset_store.list_global_assets().await?;
         let mut tag_map: BTreeMap<String, Vec<rustacian_blog_core::PostSummary>> = BTreeMap::new();
@@ -221,10 +221,12 @@ impl StaticSiteGenerator for LocalStaticSiteGenerator {
                     updated_at: view.updated_at.clone(),
                     tags: view.tags.clone(),
                     summary: view.summary.clone(),
+                    description: view.description.clone(),
                     hero_image: view.hero_image.clone(),
                     toc: view.toc,
                     math: view.math,
                     summary_ai: view.summary_ai.clone(),
+                    read_minutes: view.read_minutes,
                     status: view.status.clone(),
                 });
                 pages.push(StaticPage {
@@ -259,7 +261,7 @@ impl StaticSiteGenerator for LocalStaticSiteGenerator {
         for (tag, posts) in tag_map {
             pages.push(StaticPage {
                 path: format!("tags/{tag}/index.html"),
-                content: render_tag_posts_page(&tag, map_summaries(posts)),
+                content: render_tag_posts_page(&tag, map_summaries(posts), 1, 1),
             });
             sitemap_urls.push(absolute_url(&self.base_url, &format!("/tags/{tag}/")));
         }
@@ -336,12 +338,14 @@ fn map_summaries(posts: Vec<rustacian_blog_core::PostSummary>) -> Vec<PostSummar
                 .map(|date| date.format("%Y-%m-%d").to_string()),
             tags: post.tags,
             summary: post.summary,
+            description: post.description,
             hero_image: post
                 .hero_image
                 .map(|value| resolve_asset_url(&value, &post.slug)),
             toc: post.toc,
             math: post.math,
             summary_ai: post.summary_ai,
+            read_minutes: post.read_minutes,
             status: match post.status {
                 rustacian_blog_core::PostStatus::Published => "published".to_owned(),
                 rustacian_blog_core::PostStatus::Draft => "draft".to_owned(),
@@ -361,12 +365,14 @@ fn map_post(post: Post) -> PostView {
             .map(|date| date.format("%Y-%m-%d").to_string()),
         tags: post.tags,
         summary: post.summary,
+        description: post.description,
         hero_image: post
             .hero_image
             .map(|value| resolve_asset_url(&value, &slug)),
         toc: post.toc,
         math: post.math,
         summary_ai: post.summary_ai,
+        read_minutes: post.read_minutes,
         charts: post
             .chart_data
             .into_iter()

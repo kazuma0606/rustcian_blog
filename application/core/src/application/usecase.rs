@@ -255,6 +255,7 @@ mod tests {
             updated_at: None,
             tags: vec!["rust".to_owned()],
             summary: "summary".to_owned(),
+            description: None,
             hero_image: Some("/images/example.svg".to_owned()),
             status: PostStatus::Published,
             toc: false,

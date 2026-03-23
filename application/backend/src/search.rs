@@ -202,6 +202,7 @@ mod tests {
                 updated_at: None,
                 tags: vec!["rust".to_owned()],
                 summary: "summary".to_owned(),
+                description: None,
                 hero_image: None,
                 status,
                 toc: false,

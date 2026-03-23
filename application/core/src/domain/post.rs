@@ -78,6 +78,8 @@ pub struct PostMetadata {
     pub tags: Vec<String>,
     pub summary: String,
     #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
     pub hero_image: Option<String>,
     #[serde(default)]
     pub status: PostStatus,
@@ -99,11 +101,14 @@ pub struct Post {
     pub updated_at: Option<DateTime<Utc>>,
     pub tags: Vec<String>,
     pub summary: String,
+    #[serde(default)]
+    pub description: Option<String>,
     pub hero_image: Option<String>,
     pub status: PostStatus,
     pub toc: bool,
     pub math: bool,
     pub summary_ai: Option<String>,
+    pub read_minutes: usize,
     #[serde(default)]
     pub charts: Vec<ChartDefinition>,
     #[serde(default)]
@@ -122,12 +127,15 @@ pub struct PostSummary {
     pub updated_at: Option<DateTime<Utc>>,
     pub tags: Vec<String>,
     pub summary: String,
+    #[serde(default)]
+    pub description: Option<String>,
     pub hero_image: Option<String>,
     pub status: PostStatus,
     pub toc: bool,
     pub math: bool,
     #[serde(default)]
     pub summary_ai: Option<String>,
+    pub read_minutes: usize,
 }
 
 impl Post {
@@ -155,6 +163,8 @@ impl Post {
             ));
         }
 
+        let read_minutes = estimate_read_minutes(&body_markdown);
+
         Ok(Self {
             title: metadata.title,
             slug: metadata.slug,
@@ -162,11 +172,13 @@ impl Post {
             updated_at: metadata.updated_at,
             tags: metadata.tags,
             summary: metadata.summary,
+            description: metadata.description,
             hero_image: metadata.hero_image,
             status: metadata.status,
             toc: metadata.toc,
             math: metadata.math,
             summary_ai: metadata.summary_ai,
+            read_minutes,
             charts: metadata.charts,
             chart_data: Vec::new(),
             toc_items,
@@ -187,13 +199,20 @@ impl Post {
             updated_at: self.updated_at,
             tags: self.tags.clone(),
             summary: self.summary.clone(),
+            description: self.description.clone(),
             hero_image: self.hero_image.clone(),
             status: self.status,
             toc: self.toc,
             math: self.math,
             summary_ai: self.summary_ai.clone(),
+            read_minutes: self.read_minutes,
         }
     }
+}
+
+fn estimate_read_minutes(body: &str) -> usize {
+    let char_count = body.chars().count();
+    ((char_count as f64 / 400.0).ceil() as usize).max(1)
 }
 
 fn validate_slug(slug: &str) -> Result<(), BlogError> {
@@ -284,6 +303,7 @@ mod tests {
             ),
             tags: vec!["rust".to_owned()],
             summary: "summary".to_owned(),
+            description: None,
             hero_image: None,
             status: PostStatus::Published,
             toc: true,

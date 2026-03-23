@@ -61,11 +61,15 @@ pub struct PostSummaryView {
     pub updated_at: Option<String>,
     pub tags: Vec<String>,
     pub summary: String,
+    #[serde(default)]
+    pub description: Option<String>,
     pub hero_image: Option<String>,
     pub toc: bool,
     pub math: bool,
     #[serde(default)]
     pub summary_ai: Option<String>,
+    #[serde(default)]
+    pub read_minutes: usize,
     /// "published" | "draft"
     #[serde(default)]
     pub status: String,
@@ -95,10 +99,14 @@ pub struct PostView {
     pub updated_at: Option<String>,
     pub tags: Vec<String>,
     pub summary: String,
+    #[serde(default)]
+    pub description: Option<String>,
     pub hero_image: Option<String>,
     pub toc: bool,
     pub math: bool,
     pub summary_ai: Option<String>,
+    #[serde(default)]
+    pub read_minutes: usize,
     pub charts: Vec<RenderedChartView>,
     pub toc_items: Vec<TocItemView>,
     pub body_html: String,
@@ -107,23 +115,34 @@ pub struct PostView {
     pub status: String,
 }
 
-pub fn render_posts_page(posts: Vec<PostSummaryView>) -> String {
+pub fn render_posts_page(posts: Vec<PostSummaryView>, page: usize, total_pages: usize) -> String {
     render_posts_shell(
-        "Rustacian Blog",
-        "Rustacian Blog PoC",
-        "Markdown, Actix Web, and Leptos",
-        "Local-first で記事を管理しつつ、Core と adapter を分離した Rust ブログの実験場です。",
+        "Rustacian Tech Blog",
+        "Rustacian Tech Blog",
+        "Rust で作り、Rust について書く技術ブログ。",
+        "Actix Web × Leptos × Azure で動く本番ブログでもあります。",
         posts,
+        page,
+        total_pages,
+        "/",
     )
 }
 
-pub fn render_tag_posts_page(tag: &str, posts: Vec<PostSummaryView>) -> String {
+pub fn render_tag_posts_page(
+    tag: &str,
+    posts: Vec<PostSummaryView>,
+    page: usize,
+    total_pages: usize,
+) -> String {
     render_posts_shell(
         &format!("Posts tagged {tag}"),
         "Tag Archive",
         &format!("Posts tagged {tag}"),
         &format!("`{tag}` を付けた公開記事の一覧です。"),
         posts,
+        page,
+        total_pages,
+        &format!("/tags/{tag}/"),
     )
 }
 
@@ -759,12 +778,16 @@ fn esc(s: &str) -> String {
         .replace('\'', "&#39;")
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_posts_shell(
     title: &str,
     eyebrow: &str,
     headline: &str,
     summary: &str,
     posts: Vec<PostSummaryView>,
+    page: usize,
+    total_pages: usize,
+    base_path: &str,
 ) -> String {
     let body = view! {
         <PostsPage
@@ -772,6 +795,9 @@ fn render_posts_shell(
             eyebrow=eyebrow.to_owned()
             headline=headline.to_owned()
             summary=summary.to_owned()
+            page=page
+            total_pages=total_pages
+            base_path=base_path.to_owned()
         />
     }
     .to_html();
@@ -885,7 +911,7 @@ fn wrap_document_inner(
       .hero {{
         padding: 28px;
         border: 1px solid var(--line);
-        border-radius: 28px;
+        border-radius: 12px;
         background: var(--surface);
         box-shadow: 0 18px 48px rgba(98, 72, 50, 0.12);
       }}
@@ -902,26 +928,80 @@ fn wrap_document_inner(
         margin-top: 28px;
       }}
       .card {{
-        display: grid;
-        gap: 14px;
-        border-radius: 24px;
-        padding: 22px;
+        display: flex;
+        flex-direction: row;
+        align-items: flex-start;
+        gap: 16px;
+        border-radius: 10px;
+        padding: 18px 22px;
         border: 1px solid var(--line);
         background: rgba(255, 249, 242, 0.94);
         text-decoration: none;
         box-shadow: 0 12px 28px rgba(98, 72, 50, 0.08);
       }}
-      .card img, .post img {{
-        width: 100%;
-        max-height: 280px;
+      .card-thumb {{
+        flex-shrink: 0;
+        width: 100px;
+        height: 75px;
         object-fit: cover;
-        border-radius: 18px;
+        border-radius: 4px;
         border: 1px solid var(--line);
         background: white;
       }}
-      .card img[src$=".svg"], .post img[src$=".svg"] {{
+      .card-thumb-placeholder {{
+        flex-shrink: 0;
+        width: 100px;
+        height: 75px;
+        border-radius: 4px;
+        border: 1px solid var(--line);
+        background: var(--line);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 13px;
+        font-weight: 600;
+        color: white;
+        letter-spacing: 0.08em;
+      }}
+      .card-body {{
+        flex: 1;
+        min-width: 0;
+        display: grid;
+        gap: 6px;
+      }}
+      .card-title {{
+        margin: 0;
+        font-size: 18px;
+        line-height: 1.3;
+        color: var(--text);
+      }}
+      .card-desc {{
+        margin: 0;
+        font-size: 14px;
+        color: var(--muted);
+        line-height: 1.6;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+      }}
+      .post img {{
+        width: 100%;
+        max-height: 280px;
+        object-fit: cover;
+        border-radius: 8px;
+        border: 1px solid var(--line);
+        background: white;
+      }}
+      .post img[src$=".svg"] {{
         object-fit: contain;
         background: transparent;
+      }}
+      @media (max-width: 600px) {{
+        .card-thumb, .card-thumb-placeholder {{
+          width: 80px;
+          height: 60px;
+        }}
       }}
       .meta {{
         color: var(--muted);
@@ -952,7 +1032,7 @@ fn wrap_document_inner(
       .post {{
         margin-top: 28px;
         padding: 28px;
-        border-radius: 28px;
+        border-radius: 12px;
         border: 1px solid var(--line);
         background: rgba(255, 252, 246, 0.94);
       }}
@@ -960,7 +1040,7 @@ fn wrap_document_inner(
         margin-top: 24px;
         padding: 18px 20px;
         border: 1px solid var(--line);
-        border-radius: 20px;
+        border-radius: 8px;
         background: rgba(247, 241, 231, 0.8);
       }}
       .toc h2 {{
@@ -1113,7 +1193,7 @@ fn wrap_document_inner(
       }}
       @media (max-width: 640px) {{
         .shell {{ padding: 20px 16px 48px; }}
-        .hero, .post, .card {{ border-radius: 22px; }}
+        .hero, .post, .card {{ border-radius: 8px; }}
       }}
     </style>
   </head>
@@ -1271,40 +1351,22 @@ fn PostsPage(
     eyebrow: String,
     headline: String,
     summary: String,
+    page: usize,
+    total_pages: usize,
+    base_path: String,
 ) -> impl IntoView {
     let post_cards = posts
         .into_iter()
         .map(|post| {
-            let hero_view = post
-                .hero_image
-                .clone()
-                .map(|src| {
-                    view! {
-                        <img
-                            src=src
-                            alt=post.title.clone()
-                            style="width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:8px;margin-bottom:12px;"
-                        />
-                    }
-                    .into_any()
-                })
-                .unwrap_or_else(|| ().into_any());
-            let updated_view = post
-                .updated_at
-                .clone()
-                .map(|value| {
-                    view! { <div class="meta">{format!("Updated {value}")}</div> }.into_any()
-                })
-                .unwrap_or_else(|| ().into_any());
-            let toc_tag = if post.toc {
-                view! { <span class="tag is-info">"TOC"</span> }.into_any()
-            } else {
-                ().into_any()
-            };
-            let math_tag = if post.math {
-                view! { <span class="tag is-info">"Math"</span> }.into_any()
-            } else {
-                ().into_any()
+            let thumb_view = match post.hero_image.clone() {
+                Some(src) => view! {
+                    <img class="card-thumb" src=src alt=post.title.clone()/>
+                }
+                .into_any(),
+                None => view! {
+                    <div class="card-thumb-placeholder">"BLOG"</div>
+                }
+                .into_any(),
             };
             let tags = post
                 .tags
@@ -1314,31 +1376,81 @@ fn PostsPage(
             let description = post
                 .summary_ai
                 .clone()
+                .or(post.description.clone())
                 .unwrap_or_else(|| post.summary.clone());
+            let read_min = post.read_minutes.max(1);
+            let meta_text = format!("{}  ·  約 {} 分", post.published_at, read_min);
 
             view! {
                 <a class="card" href=format!("/p/{}", post.slug)>
-                    {hero_view}
-                    <div class="meta-stack">
-                        <div class="meta">{post.published_at}</div>
-                        {updated_view}
+                    {thumb_view}
+                    <div class="card-body">
+                        <h2 class="card-title">{post.title}</h2>
+                        <div class="meta">{meta_text}</div>
+                        <p class="card-desc">{description}</p>
+                        <div class="tags">{tags}</div>
                     </div>
-                    <h2>{post.title}</h2>
-                    <p>{description}</p>
-                    <div class="tags">{tags}{toc_tag}{math_tag}</div>
                 </a>
             }
         })
         .collect_view();
 
+    let prev_href = format!("{}?page={}", base_path, page.saturating_sub(1).max(1));
+    let next_href = format!("{}?page={}", base_path, page + 1);
+    let prev_active = page > 1;
+    let next_active = page < total_pages;
+
+    let prev_view = if prev_active {
+        view! {
+            <a href=prev_href style="color:var(--accent);text-decoration:none;padding:6px 14px;border:1px solid var(--line);border-radius:8px;background:var(--surface);">
+                "← Prev"
+            </a>
+        }
+        .into_any()
+    } else {
+        view! {
+            <span style="color:var(--muted);padding:6px 14px;border:1px solid var(--line);border-radius:8px;background:var(--surface);opacity:0.45;cursor:default;">
+                "← Prev"
+            </span>
+        }
+        .into_any()
+    };
+    let next_view = if next_active {
+        view! {
+            <a href=next_href style="color:var(--accent);text-decoration:none;padding:6px 14px;border:1px solid var(--line);border-radius:8px;background:var(--surface);">
+                "Next →"
+            </a>
+        }
+        .into_any()
+    } else {
+        view! {
+            <span style="color:var(--muted);padding:6px 14px;border:1px solid var(--line);border-radius:8px;background:var(--surface);opacity:0.45;cursor:default;">
+                "Next →"
+            </span>
+        }
+        .into_any()
+    };
+
     view! {
         <main class="shell">
-            <section class="hero">
-                <div class="eyebrow">{eyebrow}</div>
-                <h1>{headline}</h1>
-                <p>{summary}</p>
+            <section class="hero" style="display:flex;align-items:center;gap:24px;">
+                <div style="flex:1;min-width:0;">
+                    <div class="eyebrow">{eyebrow}</div>
+                    <h1 style="margin:6px 0 10px;">{headline}</h1>
+                    <p style="margin:0;color:var(--muted);font-size:15px;">{summary}</p>
+                </div>
+                <img
+                    src="/images/ferris.png"
+                    alt="Ferris the crab"
+                    style="flex-shrink:0;width:120px;height:auto;object-fit:contain;"
+                />
             </section>
             <section class="posts">{post_cards}</section>
+            <div style="display:flex;align-items:center;justify-content:center;gap:16px;margin-top:32px;">
+                {prev_view}
+                <span style="color:var(--muted);font-size:14px;">{format!("{} / {}", page, total_pages.max(1))}</span>
+                {next_view}
+            </div>
         </main>
     }
 }
@@ -1554,10 +1666,12 @@ mod tests {
             updated_at: None,
             tags: vec!["rust".to_owned()],
             summary: "summary".to_owned(),
+            description: None,
             hero_image: None,
             toc: false,
             math: true,
             summary_ai: None,
+            read_minutes: 1,
             charts: vec![RenderedChartView {
                 chart_type: "line".to_owned(),
                 source: "/assets/posts/sample/metrics.csv".to_owned(),
@@ -1618,12 +1732,16 @@ mod tests {
                 updated_at: None,
                 tags: vec!["rust".to_owned()],
                 summary: "summary".to_owned(),
+                description: None,
                 hero_image: None,
                 toc: false,
                 math: false,
                 summary_ai: None,
+                read_minutes: 1,
                 status: "published".to_owned(),
             }],
+            1,
+            1,
         );
 
         assert!(tag_html.contains("/tags/rust/"));
