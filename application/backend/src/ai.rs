@@ -57,6 +57,67 @@ impl AzureOpenAiMetadataGenerator {
     }
 }
 
+/// Azure Computer Vision adapter for generating alt-text descriptions.
+#[derive(Debug, Clone)]
+pub struct VisionAdapter {
+    client: Client,
+    endpoint: String,
+    api_key: String,
+}
+
+impl VisionAdapter {
+    pub fn new(endpoint: String, api_key: String) -> Self {
+        Self {
+            client: Client::new(),
+            endpoint,
+            api_key,
+        }
+    }
+
+    /// Describe an image URL using Azure Computer Vision Analyze API.
+    /// Returns the top caption text, or an empty string if no caption is available.
+    pub async fn describe_image_url(&self, image_url: &str) -> Result<String, BlogError> {
+        let url = format!(
+            "{}/vision/v3.2/analyze?visualFeatures=Description",
+            self.endpoint.trim_end_matches('/')
+        );
+        let response = self
+            .client
+            .post(&url)
+            .header("Ocp-Apim-Subscription-Key", &self.api_key)
+            .json(&serde_json::json!({"url": image_url}))
+            .send()
+            .await
+            .map_err(|e| BlogError::Storage(format!("vision request failed: {e}")))?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            return Err(BlogError::Storage(format!("vision api ({status}): {body}")));
+        }
+
+        let body: serde_json::Value = response
+            .json()
+            .await
+            .map_err(|e| BlogError::Parse(e.to_string()))?;
+
+        let alt = body["description"]["captions"]
+            .as_array()
+            .and_then(|caps| caps.first())
+            .and_then(|cap| cap["text"].as_str())
+            .unwrap_or("")
+            .to_owned();
+
+        Ok(alt)
+    }
+}
+
+pub fn build_vision_adapter(config: &AppConfig) -> Option<VisionAdapter> {
+    let endpoint = config.azure_vision_endpoint.clone()?;
+    let api_key = config.azure_vision_api_key.clone()?;
+    Some(VisionAdapter::new(endpoint, api_key))
+}
+
 pub fn build_ai_metadata_generator(config: &AppConfig) -> Option<Arc<dyn AiMetadataGenerator>> {
     let endpoint = config.azure_openai_endpoint.clone()?;
     let deployment = config.azure_openai_deployment.clone()?;
@@ -311,6 +372,14 @@ mod tests {
             entra_redirect_uri: None,
             cloudflare_zone_id: None,
             cloudflare_api_token: None,
+            azure_vision_endpoint: None,
+            azure_vision_api_key: None,
+            azure_translator_endpoint: None,
+            azure_translator_api_key: None,
+            acs_endpoint: None,
+            acs_access_key: None,
+            acs_sender_address: None,
+            acs_recipient_address: None,
             static_output_dir: "./dist".into(),
             static_publish_backend: "local".to_owned(),
             static_publish_prefix: "site".to_owned(),
@@ -361,6 +430,14 @@ mod tests {
             entra_redirect_uri: None,
             cloudflare_zone_id: None,
             cloudflare_api_token: None,
+            azure_vision_endpoint: None,
+            azure_vision_api_key: None,
+            azure_translator_endpoint: None,
+            azure_translator_api_key: None,
+            acs_endpoint: None,
+            acs_access_key: None,
+            acs_sender_address: None,
+            acs_recipient_address: None,
             static_output_dir: "./dist".into(),
             static_publish_backend: "local".to_owned(),
             static_publish_prefix: "site".to_owned(),
@@ -417,6 +494,14 @@ mod tests {
             entra_redirect_uri: None,
             cloudflare_zone_id: None,
             cloudflare_api_token: None,
+            azure_vision_endpoint: None,
+            azure_vision_api_key: None,
+            azure_translator_endpoint: None,
+            azure_translator_api_key: None,
+            acs_endpoint: None,
+            acs_access_key: None,
+            acs_sender_address: None,
+            acs_recipient_address: None,
             static_output_dir: "./dist".into(),
             static_publish_backend: "local".to_owned(),
             static_publish_prefix: "site".to_owned(),

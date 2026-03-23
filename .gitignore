@@ -12,3 +12,7 @@
 *.log
 cap/*
 /dist/
+contact.json
+terraform/terraform.tfvars
+terraform/tfplan
+/content/

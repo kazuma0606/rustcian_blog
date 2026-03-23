@@ -3,7 +3,7 @@ use std::sync::Arc;
 use actix_files::Files;
 use actix_web::{App, HttpServer, web};
 use rustacian_blog_backend::{
-    ai::{build_ai_metadata_generator, build_generated_metadata_store},
+    ai::{build_ai_metadata_generator, build_generated_metadata_store, build_vision_adapter},
     analytics_writer::AnalyticsWriter,
     auth::build_admin_auth_service,
     blob::AzuriteBlobAdapter,
@@ -20,6 +20,7 @@ use rustacian_blog_backend::{
     state::AppState,
     static_site::{LocalFileAssetStore, LocalStaticSiteGenerator, build_static_site_publisher},
     storage::{AzuritePostRepository, LocalContentPostRepository, seed_azurite_from_local},
+    translator::build_translator,
 };
 use rustacian_blog_core::{
     GenerateAiMetadataUseCase, GetPostUseCase, ListPostsUseCase, PostRepository, PostVisibility,
@@ -45,16 +46,23 @@ async fn main() -> std::io::Result<()> {
         _ => Arc::new(LocalContentPostRepository::new(config.content_root.clone())),
     };
 
-    // Initialize Azurite Table Storage tables if needed.
+    // Initialize Azure Table Storage tables if needed.
+    // Failures are non-fatal: tables may already exist, or Managed Identity
+    // role propagation may be in progress. The tables will be created on first
+    // successful write if they don't exist yet.
     if let Some(endpoint) = &config.azurite_table_endpoint {
-        AzuriteCommentRepository::new(endpoint.clone())
+        if let Err(e) = AzuriteCommentRepository::new(endpoint.clone())
             .init()
             .await
-            .expect("failed to create comments table");
-        AzuriteContactRepository::new(endpoint.clone())
+        {
+            eprintln!("warn: failed to init comments table (non-fatal): {e}");
+        }
+        if let Err(e) = AzuriteContactRepository::new(endpoint.clone())
             .init()
             .await
-            .expect("failed to create contacts table");
+        {
+            eprintln!("warn: failed to init contacts table (non-fatal): {e}");
+        }
     }
 
     // Build initial search index from all published posts.
@@ -78,11 +86,20 @@ async fn main() -> std::io::Result<()> {
         }
     }
 
-    let static_generator = Arc::new(LocalStaticSiteGenerator::new(
-        repository.clone(),
-        Arc::new(LocalFileAssetStore::new(config.content_root.clone())),
-        config.base_url.clone(),
-    ));
+    let translator = build_translator(&config).map(Arc::new);
+    let static_generator = {
+        let sg = LocalStaticSiteGenerator::new(
+            repository.clone(),
+            Arc::new(LocalFileAssetStore::new(config.content_root.clone())),
+            config.base_url.clone(),
+        );
+        let sg = if let Some(t) = translator.clone() {
+            sg.with_translator(t)
+        } else {
+            sg
+        };
+        Arc::new(sg)
+    };
     let static_publisher = build_static_site_publisher(&config);
     let app_state = AppState {
         list_posts: ListPostsUseCase::new(repository.clone()),
@@ -118,6 +135,8 @@ async fn main() -> std::io::Result<()> {
             config.cloudflare_api_token.as_deref(),
         ),
         http_client: reqwest::Client::new(),
+        vision: build_vision_adapter(&config),
+        translator: translator.clone(),
         config: config.clone(),
     };
     let bind_address = config.bind_address();

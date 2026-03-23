@@ -132,12 +132,84 @@ pub fn render_tags_page(tags: Vec<TagLinkView>) -> String {
     wrap_document("Tags", &body, false, false)
 }
 
-pub fn render_post_page(post: PostView) -> String {
+/// Render a Japanese post page.
+/// Pass `en_url` (e.g. `"/en/posts/my-slug"`) to inject `<link rel="alternate" hreflang>` tags.
+pub fn render_post_page(post: PostView, en_url: Option<&str>) -> String {
+    let extra_head = if let Some(en) = en_url {
+        let slug = esc(&post.slug);
+        format!(
+            r#"<link rel="alternate" hreflang="ja" href="/posts/{slug}">
+    <link rel="alternate" hreflang="en" href="{en}">"#
+        )
+    } else {
+        String::new()
+    };
     let title = post.title.clone();
     let enable_math = post.math;
     let enable_mermaid = post.body_html.contains("class=\"mermaid\"");
     let body = view! { <PostPage post=post/> }.to_html();
-    wrap_document(&title, &body, enable_math, enable_mermaid)
+    wrap_document_inner(
+        &title,
+        &body,
+        enable_math,
+        enable_mermaid,
+        "ja",
+        &extra_head,
+    )
+}
+
+/// Render a translated (English) post page with hreflang pointing back to the Japanese original.
+pub fn render_en_post_page(post: PostView, ja_url: &str) -> String {
+    let slug = esc(&post.slug);
+    let extra_head = format!(
+        r#"<link rel="alternate" hreflang="ja" href="{ja_url}">
+    <link rel="alternate" hreflang="en" href="/en/posts/{slug}">"#
+    );
+    let title = post.title.clone();
+    let enable_math = post.math;
+    let enable_mermaid = post.body_html.contains("class=\"mermaid\"");
+    let body = view! { <PostPage post=post/> }.to_html();
+    wrap_document_inner(
+        &title,
+        &body,
+        enable_math,
+        enable_mermaid,
+        "en",
+        &extra_head,
+    )
+}
+
+/// Render a simple English-language posts index page.
+pub fn render_en_posts_page(posts: Vec<PostSummaryView>) -> String {
+    let items: String = posts
+        .iter()
+        .map(|p| {
+            let title = esc(&p.title);
+            let slug = esc(&p.slug);
+            let date = esc(&p.published_at);
+            format!(
+                r#"<div class="card" style="margin-bottom:16px;">
+  <div style="font-size:13px;color:var(--muted);margin-bottom:4px;">{date}</div>
+  <h2 style="margin:0 0 8px;font-size:20px;"><a href="/en/posts/{slug}" style="color:var(--text);text-decoration:none;">{title}</a></h2>
+  <a href="/en/posts/{slug}" class="btn btn-outline" style="font-size:13px;">Read in English →</a>
+</div>"#
+            )
+        })
+        .collect();
+    let empty = if posts.is_empty() {
+        "<p style=\"color:var(--muted);\">No posts available.</p>"
+    } else {
+        ""
+    };
+    let body = format!(
+        r#"<div class="shell">
+<p class="eyebrow">English</p>
+<h1 style="margin:4px 0 24px;">Articles</h1>
+{empty}
+{items}
+</div>"#
+    );
+    wrap_document_inner("Articles — English", &body, false, false, "en", "")
 }
 
 pub fn render_comment_list(slug: &str, comments: Vec<CommentView>) -> String {
@@ -607,6 +679,7 @@ pub fn render_admin_image_gallery(images: Vec<ImageView>) -> String {
   <div style="font-size:11px;color:var(--muted);">{size_label}</div>
   <div style="display:flex;gap:6px;flex-wrap:wrap;">
     <button class="btn btn-outline" style="font-size:12px;" onclick="copyUrl('{url}')">URL コピー</button>
+    <button class="btn btn-outline" style="font-size:12px;" onclick="describeImage('{name}')">Alt 生成</button>
     <button class="btn btn-outline" style="font-size:12px;color:#c0392b;" onclick="deleteImage('{name}')">削除</button>
   </div>
 </div>"#,
@@ -659,6 +732,15 @@ async function deleteImage(name) {{
   if (r.ok) {{ location.reload(); }}
   else {{ alert('削除に失敗しました: ' + r.status); }}
 }}
+async function describeImage(name) {{
+  const r = await fetch('/admin/images/' + encodeURIComponent(name) + '/describe', {{ method: 'POST' }});
+  if (r.ok) {{
+    const j = await r.json();
+    prompt('生成された alt テキスト（コピーして使用）:', j.alt || '');
+  }} else {{
+    alert('Alt 生成に失敗しました: ' + r.status);
+  }}
+}}
 </script>
 </div>"#,
         nav = admin_nav(),
@@ -697,6 +779,17 @@ fn render_posts_shell(
 }
 
 fn wrap_document(title: &str, body: &str, enable_math: bool, enable_mermaid: bool) -> String {
+    wrap_document_inner(title, body, enable_math, enable_mermaid, "ja", "")
+}
+
+fn wrap_document_inner(
+    title: &str,
+    body: &str,
+    enable_math: bool,
+    enable_mermaid: bool,
+    lang: &str,
+    extra_head: &str,
+) -> String {
     let math_head = if enable_math {
         r#"
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
@@ -756,11 +849,12 @@ fn wrap_document(title: &str, body: &str, enable_math: bool, enable_mermaid: boo
 
     format!(
         r#"<!doctype html>
-<html lang="ja">
+<html lang="{lang}">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{title}</title>
+    {extra_head}
     {math_head}
     {mermaid_head}
     <style>
@@ -1497,7 +1591,7 @@ mod tests {
 
     #[test]
     fn rendered_post_page_includes_math_assets_and_markers() {
-        let html = render_post_page(sample_post_view());
+        let html = render_post_page(sample_post_view(), None);
 
         assert!(html.contains("katex.min.css"));
         assert!(html.contains("mermaid.esm.min.mjs"));

@@ -13,3 +13,4 @@ pub mod state;
 pub mod static_site;
 pub mod storage;
 pub mod table;
+pub mod translator;

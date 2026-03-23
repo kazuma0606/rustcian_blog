@@ -13,16 +13,18 @@ use rustacian_blog_core::{
 };
 use rustacian_blog_frontend::{
     ChartPointView, PostSummaryView, PostView, RenderedChartView, TagLinkView, TocItemView,
-    render_post_page, render_posts_page, render_tag_posts_page, render_tags_page,
+    render_en_post_page, render_en_posts_page, render_post_page, render_posts_page,
+    render_tag_posts_page, render_tags_page,
 };
 use serde::Serialize;
 
-use crate::{blob::AzuriteBlobAdapter, config::AppConfig};
+use crate::{blob::AzuriteBlobAdapter, config::AppConfig, translator::AzureTranslatorAdapter};
 
 pub struct LocalStaticSiteGenerator {
     repository: Arc<dyn PostRepository>,
     asset_store: Arc<dyn AssetStore>,
     base_url: String,
+    translator: Option<Arc<AzureTranslatorAdapter>>,
 }
 
 impl LocalStaticSiteGenerator {
@@ -35,7 +37,13 @@ impl LocalStaticSiteGenerator {
             repository,
             asset_store,
             base_url,
+            translator: None,
         }
+    }
+
+    pub fn with_translator(mut self, translator: Arc<AzureTranslatorAdapter>) -> Self {
+        self.translator = Some(translator);
+        self
     }
 }
 
@@ -170,14 +178,19 @@ impl StaticSiteGenerator for LocalStaticSiteGenerator {
             }
         }
 
+        let mut en_views: Vec<PostSummaryView> = Vec::new();
         for summary in summaries {
             let post = self
                 .repository
                 .get_post(&summary.slug, PostVisibility::PublishedOnly)
                 .await?;
+            let en_url = self
+                .translator
+                .is_some()
+                .then(|| format!("/en/posts/{}/", post.slug));
             pages.push(StaticPage {
                 path: format!("posts/{}/index.html", post.slug),
-                content: render_post_page(map_post(post.clone())),
+                content: render_post_page(map_post(post.clone()), en_url.as_deref()),
             });
             assets.extend(self.asset_store.list_post_assets(&post.slug).await?);
             search_entries.push(SearchEntry::from_post(&post));
@@ -186,6 +199,47 @@ impl StaticSiteGenerator for LocalStaticSiteGenerator {
                 &format!("/posts/{}/", post.slug),
             ));
             rss_items.push(RssItem::from_post(&post, &self.base_url));
+
+            if let Some(translator) = &self.translator {
+                let mut view = map_post(post);
+                let en_title = translator
+                    .translate_text(&view.title)
+                    .await
+                    .map_err(|e| BlogError::Storage(e.to_string()))?;
+                let en_body = translator
+                    .translate_html(&view.body_html)
+                    .await
+                    .map_err(|e| BlogError::Storage(e.to_string()))?;
+                let ja_url = format!("/posts/{}/", view.slug);
+                let slug = view.slug.clone();
+                view.title = en_title.clone();
+                view.body_html = en_body;
+                en_views.push(PostSummaryView {
+                    title: en_title,
+                    slug: slug.clone(),
+                    published_at: view.published_at.clone(),
+                    updated_at: view.updated_at.clone(),
+                    tags: view.tags.clone(),
+                    summary: view.summary.clone(),
+                    hero_image: view.hero_image.clone(),
+                    toc: view.toc,
+                    math: view.math,
+                    summary_ai: view.summary_ai.clone(),
+                    status: view.status.clone(),
+                });
+                pages.push(StaticPage {
+                    path: format!("en/posts/{slug}/index.html"),
+                    content: render_en_post_page(view, &ja_url),
+                });
+                sitemap_urls.push(absolute_url(&self.base_url, &format!("/en/posts/{slug}/")));
+            }
+        }
+        if self.translator.is_some() {
+            pages.push(StaticPage {
+                path: "en/index.html".to_owned(),
+                content: render_en_posts_page(en_views),
+            });
+            sitemap_urls.push(absolute_url(&self.base_url, "/en/"));
         }
 
         let tag_links = tag_map
@@ -746,6 +800,14 @@ mod tests {
             entra_redirect_uri: None,
             cloudflare_zone_id: None,
             cloudflare_api_token: None,
+            azure_vision_endpoint: None,
+            azure_vision_api_key: None,
+            azure_translator_endpoint: None,
+            azure_translator_api_key: None,
+            acs_endpoint: None,
+            acs_access_key: None,
+            acs_sender_address: None,
+            acs_recipient_address: None,
             static_output_dir: output_dir.clone(),
             static_publish_backend: "local".to_owned(),
             static_publish_prefix: "site".to_owned(),
@@ -797,6 +859,14 @@ mod tests {
             entra_redirect_uri: None,
             cloudflare_zone_id: None,
             cloudflare_api_token: None,
+            azure_vision_endpoint: None,
+            azure_vision_api_key: None,
+            azure_translator_endpoint: None,
+            azure_translator_api_key: None,
+            acs_endpoint: None,
+            acs_access_key: None,
+            acs_sender_address: None,
+            acs_recipient_address: None,
             static_output_dir: "./dist".into(),
             static_publish_backend: "azurite".to_owned(),
             static_publish_prefix: "adapter-test".to_owned(),

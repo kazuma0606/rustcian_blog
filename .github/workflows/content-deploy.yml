@@ -20,11 +20,9 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Checkout content repo
-        uses: actions/checkout@v4
-        with:
-          repository: kazuma0606/rustcian_blog_content
-          path: content
-          # token: ${{ secrets.CONTENT_REPO_TOKEN }}  # コンテンツリポジトリが private の場合に追加
+        run: |
+          rm -rf content
+          git clone https://x-access-token:${{ secrets.CONTENT_REPO_TOKEN }}@github.com/kazuma0606/rustcian_blog_content.git content
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -47,8 +45,7 @@ jobs:
           tags: |
             ${{ secrets.ACR_LOGIN_SERVER }}/rustacian-blog:latest
             ${{ secrets.ACR_LOGIN_SERVER }}/rustacian-blog:content-${{ github.event.client_payload.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          no-cache: true
 
       - name: Update Container App image
         run: |

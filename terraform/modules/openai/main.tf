@@ -10,6 +10,8 @@ resource "azurerm_cognitive_account" "main" {
 }
 
 resource "azurerm_cognitive_deployment" "gpt4o_mini" {
+  # count = 0 when model_capacity is 0 (quota not yet approved).
+  count                = var.model_capacity > 0 ? 1 : 0
   name                 = "gpt-4o-mini"
   cognitive_account_id = azurerm_cognitive_account.main.id
 
@@ -20,7 +22,7 @@ resource "azurerm_cognitive_deployment" "gpt4o_mini" {
   }
 
   sku {
-    name     = "Standard"
+    name     = "GlobalStandard"
     capacity = var.model_capacity
   }
 }

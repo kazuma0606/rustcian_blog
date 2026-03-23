@@ -193,6 +193,9 @@ pub async fn exchange_code_for_token(
         .map_err(|_| AdminAuthError::ProviderUnavailable("token request failed"))?;
 
     if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        eprintln!("token endpoint error: status={status} body={body}");
         return Err(AdminAuthError::ProviderUnavailable(
             "token endpoint returned non-success status",
         ));
@@ -486,6 +489,14 @@ GcZ0izY/30012ajdHY+/QK5lsMoxTnn0skdS+spLxaS5ZEO4qvPVb8RAoCkWMMal
             entra_redirect_uri: Some("http://localhost:8080/admin/callback".to_owned()),
             cloudflare_zone_id: None,
             cloudflare_api_token: None,
+            azure_vision_endpoint: None,
+            azure_vision_api_key: None,
+            azure_translator_endpoint: None,
+            azure_translator_api_key: None,
+            acs_endpoint: None,
+            acs_access_key: None,
+            acs_sender_address: None,
+            acs_recipient_address: None,
             static_output_dir: "./dist".into(),
             static_publish_backend: "local".to_owned(),
             static_publish_prefix: "site".to_owned(),

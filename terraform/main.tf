@@ -7,6 +7,20 @@ terraform {
       version = "~> 4.0"
     }
   }
+
+  # Remote state stored in Azure Blob Storage.
+  # Create the storage account and container before running terraform init:
+  #   az group create -n tfstate-rg -l japaneast
+  #   az storage account create -n rustaciantfstate -g tfstate-rg --sku Standard_LRS
+  #   az storage container create -n tfstate --account-name rustaciantfstate
+  #
+  # Then run:  terraform init -reconfigure
+  backend "azurerm" {
+    resource_group_name  = "tfstate-rg"
+    storage_account_name = "rustaciantfstate"
+    container_name       = "tfstate"
+    key                  = "rustacian-blog.tfstate"
+  }
 }
 
 provider "azurerm" {
@@ -64,9 +78,11 @@ module "storage" {
 module "openai" {
   source              = "./modules/openai"
   resource_group_name = azurerm_resource_group.main.name
-  location            = azurerm_resource_group.main.location
-  prefix              = "${var.prefix}-${var.environment}"
-  model_capacity      = var.openai_model_capacity
+  # Azure OpenAI gpt-4o-mini GlobalStandard quota is available in eastus.
+  # japaneast has 0 quota by default on new subscriptions.
+  location       = "eastus"
+  prefix         = "${var.prefix}-${var.environment}"
+  model_capacity = var.openai_model_capacity
 }
 
 module "comms" {
@@ -76,68 +92,78 @@ module "comms" {
   prefix              = "${var.prefix}-${var.environment}"
 }
 
+module "registry" {
+  source              = "./modules/registry"
+  resource_group_name = azurerm_resource_group.main.name
+  location            = azurerm_resource_group.main.location
+  prefix              = "${var.prefix}-${var.environment}"
+  sku                 = var.acr_sku
+
+  # Granted after module.app creates the managed identity.
+  container_app_principal_id  = module.app.principal_id
+  github_actions_principal_id = var.github_actions_principal_id
+}
+
 module "app" {
   source              = "./modules/app"
   resource_group_name = azurerm_resource_group.main.name
   location            = azurerm_resource_group.main.location
   prefix              = "${var.prefix}-${var.environment}"
-  sku_name            = var.app_service_sku
   container_image     = var.container_image
   container_port      = var.container_port
+  container_cpu       = var.container_cpu
+  container_memory    = var.container_memory
+  key_vault_id        = module.keyvault.id
+  acr_login_server    = module.registry.login_server
 
-  app_settings = {
+  log_analytics_workspace_id = module.monitoring.workspace_id
+
+  # Plain (non-secret) environment variables.
+  env_vars = {
     # Storage — blog content is embedded in the container image at build time.
     STORAGE_BACKEND = "local"
 
-    # Table Storage for comments and contact messages.
-    # NOTE: The application currently authenticates via SharedKeyLite using the
-    # storage account key stored as a Key Vault secret.  A future improvement
-    # is to switch to managed-identity auth (Storage Table Data Contributor).
-    AZURITE_TABLE_ENDPOINT = module.storage.table_endpoint
+    # Table Storage endpoint for comments and contact messages.
+    # Authentication uses Managed Identity (Storage Table Data Contributor).
+    AZURITE_TABLE_ENDPOINT     = module.storage.table_endpoint
+    AZURE_STORAGE_ACCOUNT_NAME = module.storage.account_name
 
-    # Authentication
+    # Admin authentication.
     ADMIN_AUTH_MODE      = var.admin_auth_mode
     ENTRA_TENANT_ID      = var.entra_tenant_id
     ENTRA_CLIENT_ID      = var.entra_client_id
     ENTRA_ADMIN_GROUP_ID = var.entra_admin_group_id
+    ENTRA_REDIRECT_URI   = var.entra_redirect_uri
 
-    # Observability — Application Insights connection string from Key Vault.
-    OBSERVABILITY_BACKEND                 = "appinsights"
-    APPLICATIONINSIGHTS_CONNECTION_STRING = "@Microsoft.KeyVault(SecretUri=${module.keyvault.app_insights_cs_uri})"
+    # Observability.
+    OBSERVABILITY_BACKEND = "appinsights"
 
-    # Slack notifications from Key Vault.
-    SLACK_WEBHOOK_URL = "@Microsoft.KeyVault(SecretUri=${module.keyvault.slack_webhook_url_uri})"
-
-    # Azure OpenAI
+    # Azure OpenAI.
     AZURE_OPENAI_ENDPOINT   = module.openai.endpoint
     AZURE_OPENAI_DEPLOYMENT = module.openai.deployment_name
 
-    # OpenAI API key from Key Vault.
-    AZURE_OPENAI_API_KEY = "@Microsoft.KeyVault(SecretUri=${module.keyvault.openai_api_key_uri})"
-
-    # Storage account key for Table Storage from Key Vault.
-    AZURE_STORAGE_ACCOUNT_NAME = module.storage.account_name
-    AZURE_STORAGE_ACCOUNT_KEY  = "@Microsoft.KeyVault(SecretUri=${module.keyvault.storage_account_key_uri})"
+    # Azure Communication Services.
+    ACS_ENDPOINT       = module.comms.endpoint
+    ACS_SENDER_ADDRESS = var.acs_sender_address
 
     BASE_URL = var.base_url
   }
 
-  key_vault_id = module.keyvault.id
+  # Key Vault-backed secrets — injected as Container Apps secrets and exposed
+  # as environment variables. Values are KV versionless secret URIs.
+  secret_env_vars = {
+    APPLICATIONINSIGHTS_CONNECTION_STRING = module.keyvault.app_insights_cs_uri
+    SLACK_WEBHOOK_URL                     = module.keyvault.slack_webhook_url_uri
+    AZURE_OPENAI_API_KEY                  = module.keyvault.openai_api_key_uri
+    ACS_ACCESS_KEY                        = module.keyvault.acs_access_key_uri
+  }
 }
 
 # ---------------------------------------------------------------------------
-# Grant the App Service's managed identity read access to Key Vault secrets.
-# Handled here at root scope to avoid a circular dependency between the
-# app module (needs secret URIs) and the keyvault module (needs principal_id).
+# Grant the Container App's managed identity access to Azure Table Storage.
+# The Key Vault Secrets User role is granted inside the app module.
 # ---------------------------------------------------------------------------
 
-resource "azurerm_role_assignment" "app_keyvault_secrets" {
-  scope                = module.keyvault.id
-  role_definition_name = "Key Vault Secrets User"
-  principal_id         = module.app.principal_id
-}
-
-# Grant storage access for future managed-identity migration.
 resource "azurerm_role_assignment" "app_storage_tables" {
   scope                = module.storage.id
   role_definition_name = "Storage Table Data Contributor"
