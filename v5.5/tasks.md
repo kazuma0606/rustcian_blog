@@ -19,7 +19,7 @@
 
 > `AZURE_STORAGE_ACCOUNT_KEY` は削除済み（Phase 5-7 完了）→ Managed Identity が自動選択される。
 
-- [ ] **1-1** `terraform/modules/app/main.tf` に上記 4 変数を追加
+- [x] **1-1** `terraform/modules/app/main.tf` に上記 4 変数を追加
 - [ ] **1-2** `terraform plan` で差分を確認（既存リソースへの影響なし）
 - [ ] **1-3** `terraform apply` を実行してコンテナを再起動
 - [ ] **1-4** `az containerapp show --query "properties.template.containers[0].env"` で環境変数を確認
@@ -30,7 +30,7 @@
 
 `AzuritePostRepository` が読むコンテナと静的サイト用コンテナを作成する。
 
-- [ ] **2-1** `content` コンテナを作成（非公開）
+- [x] **2-1** `blog-content` コンテナを作成（非公開）— Terraform で追加済み
 
   ```bash
   az storage container create \
@@ -51,7 +51,7 @@
 
   > 注：Cloudflare が `rustacian-blog.com` にプロキシしているため、`$web` への直接アクセスは不要。Container App が Blob から配信する構成も可。`STATIC_PUBLISH_PREFIX` を調整すること。
 
-- [ ] **2-3** Managed Identity に `Storage Blob Data Contributor` ロールが付与されていることを確認
+- [x] **2-3** Managed Identity に `Storage Blob Data Contributor` ロールが付与されていることを確認 — Terraform で `azurerm_role_assignment.app_storage_blobs` を追加済み
 
   ```bash
   az role assignment list \
@@ -105,7 +105,7 @@
 `STORAGE_BACKEND=azurite` かつ本番環境では `seed_azurite_from_local` を実行しないようにする。
 （CI がアップロードするため、スタートアップ時のシードは不要）
 
-- [ ] **4-1** `application/backend/src/main.rs` — `STORAGE_BACKEND=azurite` ブロック内の `seed_azurite_from_local` 呼び出しを、`SEED_FROM_LOCAL=true` の場合のみ実行するよう変更
+- [x] **4-1** `application/backend/src/main.rs` — `STORAGE_BACKEND=azurite` ブロック内の `seed_azurite_from_local` 呼び出しを、`SEED_FROM_LOCAL=true` の場合のみ実行するよう変更
 
   ```rust
   "azurite" => {
@@ -119,8 +119,8 @@
   }
   ```
 
-- [ ] **4-2** `terraform/modules/app/main.tf` に `SEED_FROM_LOCAL=false`（デフォルト）を追加（省略可。env var 未設定 = false として扱えばよい）
-- [ ] **4-3** ローカル開発用 `.env.local.example` に `SEED_FROM_LOCAL=true` を追記
+- [x] **4-2** `terraform/modules/app/main.tf` に `SEED_FROM_LOCAL=false`（デフォルト）を追加（省略可。env var 未設定 = false として扱えばよい）
+- [x] **4-3** ローカル開発用 `.env.local.example` に `SEED_FROM_LOCAL=true` を追記
 
 ---
 
