@@ -50,7 +50,8 @@ struct CredentialState {
 pub struct AzuriteBlobAdapter {
     client: Client,
     blob_endpoint: String,
-    /// Path portion of the endpoint URL (e.g. "/devstoreaccount1" for Azurite, "" for Azure).
+    /// Path portion of the endpoint URL, prepended to blob paths in the canonical resource.
+    /// Azurite: "/devstoreaccount1"; Azure: "".
     endpoint_path: String,
     account_name: String,
     cred: Arc<CredentialState>,
@@ -516,6 +517,10 @@ fn build_shared_key_auth(
     canonical_headers.sort();
 
     let canonicalized_resource = {
+        // Azure SharedKey canonical resource: /{account}{endpoint_path}{path}
+        // For Azurite (http://host:port/devstoreaccount1), endpoint_path = "/devstoreaccount1"
+        // so the resource starts with /devstoreaccount1/devstoreaccount1/...
+        // For Azure prod (https://account.blob.core.windows.net), endpoint_path = ""
         let mut resource = format!("/{account_name}{endpoint_path}{path}");
         if let Some(query) = query {
             for (key, value) in query {
@@ -526,8 +531,14 @@ fn build_shared_key_auth(
         resource
     };
 
+    // Per Azure spec: Content-Length in StringToSign must be empty when value is 0 or absent.
+    let cl_in_sign = if content_length == "0" || content_length.is_empty() {
+        ""
+    } else {
+        content_length
+    };
     let string_to_sign = format!(
-        "{method}\n\n\n{content_length}\n\n{content_type}\n\n\n\n\n\n\n{}{canonicalized_resource}",
+        "{method}\n\n\n{cl_in_sign}\n\n{content_type}\n\n\n\n\n\n\n{}{canonicalized_resource}",
         canonical_headers.concat()
     );
 
