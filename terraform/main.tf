@@ -159,6 +159,7 @@ module "app" {
     SLACK_WEBHOOK_URL                     = module.keyvault.slack_webhook_url_uri
     AZURE_OPENAI_API_KEY                  = module.keyvault.openai_api_key_uri
     ACS_ACCESS_KEY                        = module.keyvault.acs_access_key_uri
+    AZURE_STORAGE_ACCOUNT_KEY             = module.keyvault.storage_account_key_uri
   }
 }
 
@@ -177,4 +178,11 @@ resource "azurerm_role_assignment" "app_storage_blobs" {
   scope                = module.storage.id
   role_definition_name = "Storage Blob Data Contributor"
   principal_id         = module.app.principal_id
+}
+
+# Allow GitHub Actions SP to upload content blobs (content-deploy workflow).
+resource "azurerm_role_assignment" "github_storage_blobs" {
+  scope                = module.storage.id
+  role_definition_name = "Storage Blob Data Contributor"
+  principal_id         = var.github_actions_principal_id
 }

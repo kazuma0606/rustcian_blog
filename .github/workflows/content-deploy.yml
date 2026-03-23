@@ -1,13 +1,13 @@
 name: Content Deploy
 
-# Triggered when rustcian_blog_content is pushed.
-# Checks out fresh content, rebuilds the Docker image, and deploys.
+# rustacian_blog_content リポジトリへの push で repository_dispatch イベントを受け取る。
+# コンテンツを Azure Blob Storage にアップロードし、Container App を再起動する。
 on:
   repository_dispatch:
     types: [content-updated]
 
 jobs:
-  build-and-deploy:
+  deploy-content:
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -24,9 +24,6 @@ jobs:
           rm -rf content
           git clone https://x-access-token:${{ secrets.CONTENT_REPO_TOKEN }}@github.com/kazuma0606/rustcian_blog_content.git content
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
       - name: Log in to Azure (OIDC)
         uses: azure/login@v2
         with:
@@ -34,26 +31,26 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Log in to ACR
-        run: az acr login --name ${{ secrets.ACR_NAME }}
-
-      - name: Build and push image to ACR
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          push: true
-          tags: |
-            ${{ secrets.ACR_LOGIN_SERVER }}/rustacian-blog:latest
-            ${{ secrets.ACR_LOGIN_SERVER }}/rustacian-blog:content-${{ github.event.client_payload.sha }}
-          no-cache: true
-
-      - name: Update Container App image
+      - name: Upload content to Blob Storage
         run: |
-          IMAGE="${{ secrets.ACR_LOGIN_SERVER }}/rustacian-blog:content-${{ github.event.client_payload.sha }}"
-          az containerapp update \
+          az storage blob upload-batch \
+            --source content \
+            --destination blog-content \
+            --account-name ${{ secrets.STORAGE_ACCOUNT_NAME }} \
+            --auth-mode login \
+            --overwrite true
+
+      - name: Restart Container App (rebuild search index)
+        run: |
+          REVISION=$(az containerapp revision list \
             --name "${{ secrets.CONTAINER_APP_NAME }}" \
             --resource-group "${{ secrets.RESOURCE_GROUP }}" \
-            --image "$IMAGE"
+            --query "[?properties.active].name | [0]" \
+            --output tsv)
+          az containerapp revision restart \
+            --name "${{ secrets.CONTAINER_APP_NAME }}" \
+            --resource-group "${{ secrets.RESOURCE_GROUP }}" \
+            --revision "$REVISION"
 
       - name: Smoke test — health check
         run: |
@@ -62,13 +59,23 @@ jobs:
             --resource-group "${{ secrets.RESOURCE_GROUP }}" \
             --query "properties.configuration.ingress.fqdn" \
             --output tsv)
-          for i in $(seq 1 6); do
+          for i in $(seq 1 10); do
             STATUS=$(curl -s -o /dev/null -w "%{http_code}" "https://$FQDN/health")
             if [ "$STATUS" = "200" ]; then
               echo "Health check passed (HTTP $STATUS)"
-              exit 0
+              break
             fi
             echo "Attempt $i: HTTP $STATUS — retrying in 10s..."
             sleep 10
+            if [ "$i" = "10" ]; then
+              echo "Health check failed after retries" && exit 1
+            fi
           done
-          echo "Health check failed after retries" && exit 1
+
+      - name: Smoke test — post listing
+        run: |
+          COUNT=$(curl -s "https://rustacian-blog.com/" | grep -c 'class="card"')
+          if [ "$COUNT" -lt 1 ]; then
+            echo "No posts found in listing" && exit 1
+          fi
+          echo "Found $COUNT posts"

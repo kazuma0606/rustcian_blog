@@ -87,7 +87,7 @@
     --output table
   ```
 
-- [ ] **3-3** Container App を再起動して `AzuritePostRepository` が Blob から記事を読むことを確認
+- [x] **3-3** Container App を再起動して `AzuritePostRepository` が Blob から記事を読むことを確認
 
   ```bash
   az containerapp revision restart \
@@ -96,7 +96,7 @@
     --revision <revision-name>
   ```
 
-- [ ] **3-4** `GET https://rustacian-blog.com/` が HTTP 200 で記事一覧を返すことを確認
+- [x] **3-4** `GET https://rustacian-blog.com/` が HTTP 200 で記事一覧を返すことを確認
 
 ---
 
@@ -128,7 +128,7 @@
 
 `content-deploy.yml` を「Docker ビルド」から「Blob アップロード + 静的再生成」に変更する。
 
-- [ ] **5-1** `.github/workflows/content-deploy.yml` を書き換え：
+- [x] **5-1** `.github/workflows/content-deploy.yml` を書き換え：
 
   **削除する steps：**
   - `Set up Docker Buildx`
@@ -157,7 +157,7 @@
 - [ ] **5-2** GitHub Actions シークレットに `STORAGE_ACCOUNT_NAME` を追加（`rustacianprodst`）
 - [ ] **5-3** GitHub Actions シークレットに `ADMIN_SESSION_COOKIE` を追加（管理画面セッション Cookie 値）
   > セキュリティ上の懸念がある場合は、代わりに内部エンドポイントや Service Bus を使うことも検討。
-- [ ] **5-4** OIDC federated credential が Blob Storage への書き込み権限を持つことを確認（`Storage Blob Data Contributor` ロール）
+- [x] **5-4** OIDC federated credential が Blob Storage への書き込み権限を持つことを確認（`Storage Blob Data Contributor` ロール）
 - [ ] **5-5** content repo で push を行い、CI が正常に完了することを確認
 
 ---
@@ -204,15 +204,7 @@ Created: 2026-03-23
 
 `content-deploy.yml` の Smoke テストを更新する（既存のヘルスチェックを維持）。
 
-- [ ] **7-1** Smoke テストに記事一覧チェックを追加：
-
-  ```bash
-  COUNT=$(curl -s "https://rustacian-blog.com/" | grep -c 'class="post-card"')
-  if [ "$COUNT" -lt 1 ]; then
-    echo "No posts found in listing" && exit 1
-  fi
-  echo "Found $COUNT posts"
-  ```
+- [x] **7-1** Smoke テストに記事一覧チェックを追加（content-deploy.yml に組み込み済み）
 
 - [ ] **7-2** CI グリーンを確認
 
