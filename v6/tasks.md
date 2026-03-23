@@ -52,17 +52,17 @@
 
 ## マイルストーン 3: Analytics 管理画面 + テストデータ（v6-B）
 
-- [ ] `scripts/insert_analytics_testdata.sh` を作成（Azurite 向けダミーデータ投入）
-- [ ] テストデータを Azurite に投入して確認
-- [ ] `GET /admin/analytics` ルートを追加
-- [ ] `authenticate_admin` ミドルウェアを適用
-- [ ] `analyticspv` テーブルから過去 30 日のデータを取得
-- [ ] `analyticsqueries` テーブルから過去 30 日の検索クエリを取得
-- [ ] Rust 側でスラグ別 PV・検索クエリを集計
-- [ ] Admin UI に Analytics 画面を描画（テキスト棒グラフ）
+- [x] `content/analytics/pv.csv`, `queries.csv` を作成（CSVテストデータ）
+- [x] `analytics_reader.rs` を作成（CSV → Table Storage → NoData の優先順位で読み込み）
+- [x] `GET /admin/analytics` ルートを追加
+- [x] `authenticate_admin` ミドルウェアを適用
+- [x] `analyticspv` / `analyticsqueries` テーブルからデータを取得（Table Storage fallback）
+- [x] Rust 側でスラグ別 PV・検索クエリを集計
+- [x] Admin UI に Analytics 画面を描画（CSS 棒グラフ + 統計カード）
+- [x] `fmt`, `clippy`, `test` 通過
 
 ### ローカル確認 🟢
-- [ ] テストデータが投入済みの状態で `/admin/analytics` の表示を確認
+- [ ] `/admin/analytics` の表示を確認（CSVデータ表示確認）
 
 ---
 

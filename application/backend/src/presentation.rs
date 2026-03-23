@@ -1,5 +1,7 @@
+use crate::analytics_reader::read_analytics;
 use crate::auth::{build_auth_redirect_url, exchange_code_for_token};
 use crate::state::AppState;
+use crate::table::AzuriteTableClient;
 use actix_multipart::Multipart;
 use actix_web::{
     HttpRequest, HttpResponse, Result, cookie::Cookie, delete, get, http::header::ContentType,
@@ -11,11 +13,11 @@ use rustacian_blog_core::{
     PostSummary, PostVisibility, SearchQuery,
 };
 use rustacian_blog_frontend::{
-    CommentView, GeneratedMetadataView, ImageView, PostSummaryView, SearchResultView,
-    render_admin_comments, render_admin_dashboard, render_admin_image_gallery,
-    render_admin_post_detail, render_admin_static_panel, render_comment_list, render_contact_page,
-    render_en_post_page, render_en_posts_page, render_login_page, render_post_page,
-    render_posts_page, render_search_page,
+    AnalyticsView, CommentView, GeneratedMetadataView, ImageView, PostSummaryView,
+    SearchResultView, render_admin_analytics, render_admin_comments, render_admin_dashboard,
+    render_admin_image_gallery, render_admin_post_detail, render_admin_static_panel,
+    render_comment_list, render_contact_page, render_en_post_page, render_en_posts_page,
+    render_login_page, render_post_page, render_posts_page, render_search_page,
 };
 use std::{fs, path::Path};
 
@@ -50,6 +52,7 @@ fn admin_routes(cfg: &mut web::ServiceConfig) {
     cfg.service(admin_login)
         .service(admin_callback)
         .service(admin_home)
+        .service(admin_analytics)
         .service(admin_preview_placeholder)
         .service(admin_post_detail)
         .service(admin_static_panel)
@@ -216,6 +219,30 @@ async fn admin_home(request: HttpRequest, data: web::Data<AppState>) -> Result<H
     let mut response = html_response(render_admin_dashboard(map_summaries(posts)));
     attach_admin_session_cookie(&request, &mut response);
     Ok(response)
+}
+
+#[get("/analytics")]
+async fn admin_analytics(request: HttpRequest, data: web::Data<AppState>) -> Result<HttpResponse> {
+    authenticate_admin(&request, &data, "admin_analytics")
+        .await
+        .map_err(admin_auth_error)?;
+
+    let csv_dir = data.config.content_root.join("analytics");
+    let table_client = data
+        .config
+        .azurite_table_endpoint
+        .as_deref()
+        .map(AzuriteTableClient::new);
+    let stats = read_analytics(&csv_dir, table_client.as_ref()).await;
+    let view = stats.map(|s| AnalyticsView {
+        total_pvs: s.total_pvs,
+        unique_ips: s.unique_ips,
+        total_searches: s.total_searches,
+        top_posts: s.top_posts,
+        top_queries: s.top_queries,
+        source: s.source,
+    });
+    Ok(html_response(render_admin_analytics(view)))
 }
 
 #[get("/preview/{slug}")]

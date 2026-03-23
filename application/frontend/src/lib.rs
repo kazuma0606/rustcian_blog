@@ -53,6 +53,19 @@ pub struct RenderedChartView {
     pub table_rows: Vec<Vec<String>>,
 }
 
+#[derive(Debug, Clone)]
+pub struct AnalyticsView {
+    pub total_pvs: usize,
+    pub unique_ips: usize,
+    pub total_searches: usize,
+    /// Top posts: (slug, pv_count), descending.
+    pub top_posts: Vec<(String, usize)>,
+    /// Top search queries: (query, count), descending.
+    pub top_queries: Vec<(String, usize)>,
+    /// Data source label: "csv" | "table"
+    pub source: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PostSummaryView {
     pub title: String,
@@ -427,6 +440,7 @@ fn admin_document(title: &str, body: &str) -> String {
 fn admin_nav() -> &'static str {
     r#"<nav>
   <a href="/admin">ダッシュボード</a>
+  <a href="/admin/analytics">アナリティクス</a>
   <a href="/admin/comments">コメント</a>
   <a href="/admin/images">画像</a>
   <a href="/admin/static">静的サイト</a>
@@ -645,6 +659,131 @@ pub fn render_admin_static_panel() -> String {
         nav = admin_nav(),
     );
     admin_document("静的サイト管理", &body)
+}
+
+pub fn render_admin_analytics(data: Option<AnalyticsView>) -> String {
+    let body = match data {
+        None => format!(
+            r#"<div class="shell">
+<p class="eyebrow">Admin</p>
+<h1 style="margin:4px 0 20px;">アナリティクス</h1>
+{nav}
+<div class="card" style="text-align:center;padding:48px 24px;">
+  <p style="font-size:18px;color:var(--muted);margin:0;">No Data</p>
+  <p style="font-size:13px;color:var(--muted);margin:8px 0 0;">CSV ファイルも Azure Table Storage のデータもありません。</p>
+</div>
+</div>"#,
+            nav = admin_nav(),
+        ),
+        Some(d) => {
+            let source_label = match d.source.as_str() {
+                "csv" => "テストデータ (CSV)",
+                "table" => "Azure Table Storage",
+                _ => "不明",
+            };
+
+            let stat_cards = format!(
+                r#"<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px;margin-bottom:24px;">
+  <div class="card" style="text-align:center;margin:0;">
+    <div style="font-size:28px;font-weight:700;color:var(--accent);">{total_pvs}</div>
+    <div style="font-size:13px;color:var(--muted);margin-top:4px;">総 PV</div>
+  </div>
+  <div class="card" style="text-align:center;margin:0;">
+    <div style="font-size:28px;font-weight:700;color:var(--accent);">{unique_ips}</div>
+    <div style="font-size:13px;color:var(--muted);margin-top:4px;">ユニーク訪問者</div>
+  </div>
+  <div class="card" style="text-align:center;margin:0;">
+    <div style="font-size:28px;font-weight:700;color:var(--accent);">{total_searches}</div>
+    <div style="font-size:13px;color:var(--muted);margin-top:4px;">検索クエリ数</div>
+  </div>
+</div>"#,
+                total_pvs = d.total_pvs,
+                unique_ips = d.unique_ips,
+                total_searches = d.total_searches,
+            );
+
+            let max_pv = d.top_posts.first().map(|(_, c)| *c).unwrap_or(1);
+            let post_bars: String = d
+                .top_posts
+                .iter()
+                .map(|(slug, count)| {
+                    let pct = (*count as f64 / max_pv as f64 * 100.0) as usize;
+                    format!(
+                        r#"<div style="display:grid;grid-template-columns:180px 1fr 40px;align-items:center;gap:10px;margin-bottom:8px;">
+  <div style="font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{slug}">{slug}</div>
+  <div style="background:var(--line);border-radius:4px;height:18px;">
+    <div style="background:var(--accent);width:{pct}%;height:100%;border-radius:4px;"></div>
+  </div>
+  <div style="font-size:13px;text-align:right;font-variant-numeric:tabular-nums;">{count}</div>
+</div>"#,
+                        slug = esc(slug),
+                        pct = pct,
+                        count = count,
+                    )
+                })
+                .collect();
+
+            let max_q = d.top_queries.first().map(|(_, c)| *c).unwrap_or(1);
+            let query_bars: String = d
+                .top_queries
+                .iter()
+                .map(|(query, count)| {
+                    let pct = (*count as f64 / max_q as f64 * 100.0) as usize;
+                    format!(
+                        r#"<div style="display:grid;grid-template-columns:180px 1fr 40px;align-items:center;gap:10px;margin-bottom:8px;">
+  <div style="font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{query}">{query}</div>
+  <div style="background:var(--line);border-radius:4px;height:18px;">
+    <div style="background:var(--accent);width:{pct}%;height:100%;border-radius:4px;"></div>
+  </div>
+  <div style="font-size:13px;text-align:right;font-variant-numeric:tabular-nums;">{count}</div>
+</div>"#,
+                        query = esc(query),
+                        pct = pct,
+                        count = count,
+                    )
+                })
+                .collect();
+
+            let no_posts = if d.top_posts.is_empty() {
+                r#"<p style="color:var(--muted);font-size:14px;">データなし</p>"#
+            } else {
+                ""
+            };
+            let no_queries = if d.top_queries.is_empty() {
+                r#"<p style="color:var(--muted);font-size:14px;">データなし</p>"#
+            } else {
+                ""
+            };
+
+            format!(
+                r#"<div class="shell">
+<p class="eyebrow">Admin</p>
+<h1 style="margin:4px 0 6px;">アナリティクス</h1>
+<p style="font-size:12px;color:var(--muted);margin:0 0 20px;">データソース: {source_label}</p>
+{nav}
+{stat_cards}
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:18px;">
+  <div class="card">
+    <h2 style="margin-top:0;font-size:16px;">人気記事 Top 10</h2>
+    {post_bars}{no_posts}
+  </div>
+  <div class="card">
+    <h2 style="margin-top:0;font-size:16px;">検索クエリ Top 10</h2>
+    {query_bars}{no_queries}
+  </div>
+</div>
+</div>"#,
+                source_label = source_label,
+                nav = admin_nav(),
+                stat_cards = stat_cards,
+                post_bars = post_bars,
+                no_posts = no_posts,
+                query_bars = query_bars,
+                no_queries = no_queries,
+            )
+        }
+    };
+    admin_document("アナリティクス", &body)
 }
 
 pub fn render_login_page(error: Option<&str>) -> String {
