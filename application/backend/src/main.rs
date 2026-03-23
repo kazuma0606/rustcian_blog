@@ -51,16 +51,10 @@ async fn main() -> std::io::Result<()> {
     // role propagation may be in progress. The tables will be created on first
     // successful write if they don't exist yet.
     if let Some(endpoint) = &config.azurite_table_endpoint {
-        if let Err(e) = AzuriteCommentRepository::new(endpoint.clone())
-            .init()
-            .await
-        {
+        if let Err(e) = AzuriteCommentRepository::new(endpoint.clone()).init().await {
             eprintln!("warn: failed to init comments table (non-fatal): {e}");
         }
-        if let Err(e) = AzuriteContactRepository::new(endpoint.clone())
-            .init()
-            .await
-        {
+        if let Err(e) = AzuriteContactRepository::new(endpoint.clone()).init().await {
             eprintln!("warn: failed to init contacts table (non-fatal): {e}");
         }
     }

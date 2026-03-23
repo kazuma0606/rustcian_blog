@@ -41,7 +41,7 @@ RUN touch \
 
 # ---------------------------------------------------------------------------
 # Stage 3: runtime
-# Only the binary + blog content. No compiler, no Cargo, no source.
+# Only the binary. Content is served from Azure Blob Storage (STORAGE_BACKEND=azurite).
 # ---------------------------------------------------------------------------
 FROM debian:bookworm-slim AS runtime
 
@@ -52,12 +52,10 @@ RUN apt-get update && \
 WORKDIR /app
 
 COPY --from=builder /app/target/release/rustacian_blog_backend .
-COPY content/ ./content/
 
 ENV APP_HOST=0.0.0.0
 ENV APP_PORT=8080
-ENV CONTENT_ROOT=/app/content
-ENV STORAGE_BACKEND=local
+ENV STORAGE_BACKEND=azurite
 
 EXPOSE 8080
 
