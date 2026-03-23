@@ -12,8 +12,14 @@ resource "azurerm_storage_account" "main" {
   account_replication_type = "LRS"
   min_tls_version          = "TLS1_2"
 
-  # Disable public blob access; only Table Storage is used.
+  # Blob access is private; the Container App reads via Managed Identity.
   allow_nested_items_to_be_public = false
+}
+
+resource "azurerm_storage_container" "blog_content" {
+  name                  = "blog-content"
+  storage_account_id    = azurerm_storage_account.main.id
+  container_access_type = "private"
 }
 
 resource "azurerm_storage_table" "comments" {

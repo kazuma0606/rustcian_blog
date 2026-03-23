@@ -120,8 +120,11 @@ module "app" {
 
   # Plain (non-secret) environment variables.
   env_vars = {
-    # Storage — blog content is embedded in the container image at build time.
-    STORAGE_BACKEND = "local"
+    # Storage — blog content is served from Azure Blob Storage via Managed Identity.
+    STORAGE_BACKEND        = "azurite"
+    AZURITE_BLOB_ENDPOINT  = module.storage.blob_endpoint
+    STATIC_PUBLISH_BACKEND = "azurite"
+    STATIC_PUBLISH_PREFIX  = "site"
 
     # Table Storage endpoint for comments and contact messages.
     # Authentication uses Managed Identity (Storage Table Data Contributor).
@@ -167,5 +170,11 @@ module "app" {
 resource "azurerm_role_assignment" "app_storage_tables" {
   scope                = module.storage.id
   role_definition_name = "Storage Table Data Contributor"
+  principal_id         = module.app.principal_id
+}
+
+resource "azurerm_role_assignment" "app_storage_blobs" {
+  scope                = module.storage.id
+  role_definition_name = "Storage Blob Data Contributor"
   principal_id         = module.app.principal_id
 }

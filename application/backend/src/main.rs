@@ -38,9 +38,13 @@ async fn main() -> std::io::Result<()> {
                 .azurite_blob_endpoint
                 .clone()
                 .expect("AZURITE_BLOB_ENDPOINT is required when STORAGE_BACKEND=azurite");
-            seed_azurite_from_local(config.content_root.clone(), &blob_endpoint)
-                .await
-                .expect("failed to seed Azurite from local content");
+            // Only seed from local filesystem when explicitly requested (local dev).
+            // In production, CI uploads content directly to Blob Storage.
+            if std::env::var("SEED_FROM_LOCAL").as_deref() == Ok("true") {
+                seed_azurite_from_local(config.content_root.clone(), &blob_endpoint)
+                    .await
+                    .expect("failed to seed Azurite from local content");
+            }
             Arc::new(AzuritePostRepository::new(blob_endpoint))
         }
         _ => Arc::new(LocalContentPostRepository::new(config.content_root.clone())),

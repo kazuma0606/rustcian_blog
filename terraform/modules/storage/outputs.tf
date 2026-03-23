@@ -13,6 +13,11 @@ output "table_endpoint" {
   value       = azurerm_storage_account.main.primary_table_endpoint
 }
 
+output "blob_endpoint" {
+  description = "Azure Blob Storage REST endpoint."
+  value       = azurerm_storage_account.main.primary_blob_endpoint
+}
+
 output "primary_access_key" {
   description = "Primary access key for the Storage Account."
   value       = azurerm_storage_account.main.primary_access_key
