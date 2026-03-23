@@ -169,7 +169,7 @@ pub fn render_tag_posts_page(
 
 pub fn render_tags_page(tags: Vec<TagLinkView>, base_url: &str) -> String {
     let ogp = if !base_url.is_empty() {
-        let image = format!("{base_url}/images/OGP.svg");
+        let image = format!("{base_url}/images/OGP.png");
         let canonical = format!("{base_url}/tags/");
         build_ogp_meta(
             "website",
@@ -212,7 +212,7 @@ pub fn render_post_page(post: PostView, en_url: Option<&str>, base_url: &str) ->
         let image = if let Some(ref hero) = post.hero_image {
             format!("{base_url}/images/{hero}")
         } else {
-            format!("{base_url}/images/OGP.svg")
+            format!("{base_url}/images/OGP.png")
         };
         let canonical = format!("{base_url}/posts/{}/", esc(&post.slug));
         build_ogp_meta("article", &post.title, desc, &image, &canonical)
@@ -978,7 +978,7 @@ fn render_posts_shell(
     base_url: &str,
 ) -> String {
     let ogp = if !base_url.is_empty() {
-        let image = format!("{base_url}/images/OGP.svg");
+        let image = format!("{base_url}/images/OGP.png");
         let canonical = format!("{base_url}{base_path}");
         build_ogp_meta(
             "website",
