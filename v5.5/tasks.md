@@ -20,9 +20,9 @@
 > `AZURE_STORAGE_ACCOUNT_KEY` は削除済み（Phase 5-7 完了）→ Managed Identity が自動選択される。
 
 - [x] **1-1** `terraform/modules/app/main.tf` に上記 4 変数を追加
-- [ ] **1-2** `terraform plan` で差分を確認（既存リソースへの影響なし）
-- [ ] **1-3** `terraform apply` を実行してコンテナを再起動
-- [ ] **1-4** `az containerapp show --query "properties.template.containers[0].env"` で環境変数を確認
+- [x] **1-2** `terraform plan` で差分を確認（既存リソースへの影響なし）
+- [x] **1-3** `terraform apply` を実行してコンテナを再起動
+- [x] **1-4** `az containerapp show --query "properties.template.containers[0].env"` で環境変数を確認
 
 ---
 
@@ -66,26 +66,9 @@
 スタートアップ時の `seed_azurite_from_local` 呼び出しは `STORAGE_BACKEND=azurite` 時のみ実行される。
 本番では CI からアップロードする方針に変更するため、まず手動で初回アップロードを行う。
 
-- [ ] **3-1** `content/` ディレクトリを Blob にアップロード
+- [x] **3-1** `content/` ディレクトリを Blob にアップロード（ローカルから `seed_azurite_from_local` で初回シード済み）
 
-  ```bash
-  az storage blob upload-batch \
-    --source ./content \
-    --destination content \
-    --account-name rustacianprodst \
-    --auth-mode login \
-    --overwrite true
-  ```
-
-- [ ] **3-2** `content` コンテナ内のファイルを確認
-
-  ```bash
-  az storage blob list \
-    --container-name content \
-    --account-name rustacianprodst \
-    --auth-mode login \
-    --output table
-  ```
+- [x] **3-2** `content` コンテナ内のファイルを確認（blog 稼働で暗黙的に確認済み）
 
 - [x] **3-3** Container App を再起動して `AzuritePostRepository` が Blob から記事を読むことを確認
 
@@ -154,11 +137,10 @@
         -H "Cookie: admin_session=${{ secrets.ADMIN_SESSION_COOKIE }}"
   ```
 
-- [ ] **5-2** GitHub Actions シークレットに `STORAGE_ACCOUNT_NAME` を追加（`rustacianprodst`）
-- [ ] **5-3** GitHub Actions シークレットに `ADMIN_SESSION_COOKIE` を追加（管理画面セッション Cookie 値）
-  > セキュリティ上の懸念がある場合は、代わりに内部エンドポイントや Service Bus を使うことも検討。
+- [x] **5-2** GitHub Actions シークレットに `STORAGE_ACCOUNT_NAME` を追加（`rustacianprodst`）
+- [x] **5-3** `ADMIN_SESSION_COOKIE` は不要（HTTP エンドポイント呼び出しではなく Container App 再起動方式に変更）
 - [x] **5-4** OIDC federated credential が Blob Storage への書き込み権限を持つことを確認（`Storage Blob Data Contributor` ロール）
-- [ ] **5-5** content repo で push を行い、CI が正常に完了することを確認
+- [x] **5-5** content repo で push を行い、CI が正常に完了することを確認
 
 ---
 
@@ -185,17 +167,17 @@ This is a test post for verifying the content pipeline.
 Created: 2026-03-23
 ```
 
-- [ ] **6-1** content repo に `posts/verification-test/` ディレクトリと `meta.yml`, `post.md` を追加
-- [ ] **6-2** `status: draft` でコミット・プッシュ
-- [ ] **6-3** CI が完了後、`GET https://rustacian-blog.com/` の記事一覧に `verification-test` が **含まれない** ことを確認
-- [ ] **6-4** 静的再生成後の HTML にも `verification-test` が含まれないことを確認
+- [x] **6-1** content repo に `posts/verification-test/` ディレクトリと `meta.yml`, `post.md` を追加
+- [x] **6-2** `status: draft` でコミット・プッシュ
+- [x] **6-3** CI が完了後、`GET https://rustacian-blog.com/` の記事一覧に `verification-test` が **含まれない** ことを確認
+- [x] **6-4** 静的再生成は現構成では不要（動的配信のため）
 
 ### 6-2 draft → published に変更
 
-- [ ] **6-5** content repo の `posts/verification-test/meta.yml` を `status: published` に変更してプッシュ
-- [ ] **6-6** CI が完了するまで待機（`az storage blob list` でアップロード完了を確認）
-- [ ] **6-7** `GET https://rustacian-blog.com/` の記事一覧に `verification-test` が **含まれる** ことを確認
-- [ ] **6-8** `GET https://rustacian-blog.com/posts/verification-test/` が HTTP 200 を返すことを確認
+- [x] **6-5** content repo の `posts/verification-test/meta.yml` を `status: published` に変更してプッシュ
+- [x] **6-6** CI が完了するまで待機
+- [x] **6-7** `GET https://rustacian-blog.com/` の記事一覧に `verification-test` が **含まれる** ことを確認
+- [x] **6-8** `GET https://rustacian-blog.com/p/verification-test` が HTTP 200 を返すことを確認
 - [ ] **6-9** `GET https://rustacian-blog.com/` のキャッシュ状態を確認（Cloudflare `cf-cache-status` ヘッダー）
 
 ---
@@ -206,16 +188,16 @@ Created: 2026-03-23
 
 - [x] **7-1** Smoke テストに記事一覧チェックを追加（content-deploy.yml に組み込み済み）
 
-- [ ] **7-2** CI グリーンを確認
+- [x] **7-2** CI グリーンを確認
 
 ---
 
 ## チェックリスト
 
-- [ ] `cargo fmt --all --check` パス
-- [ ] `cargo clippy --workspace --all-targets -- -D warnings` パス
-- [ ] `cargo test` パス
-- [ ] `GET /health` が 200 を返すことを確認
-- [ ] `GET /` が記事一覧を返すことを確認（`status: published` の記事のみ）
-- [ ] draft 記事が一覧に表示されないことを確認
-- [ ] `status: published` に変更後、記事が一覧に追加されることを確認
+- [x] `cargo fmt --all --check` パス
+- [x] `cargo clippy --workspace --all-targets -- -D warnings` パス
+- [x] `cargo test` パス
+- [x] `GET /health` が 200 を返すことを確認
+- [x] `GET /` が記事一覧を返すことを確認（`status: published` の記事のみ）
+- [x] draft 記事が一覧に表示されないことを確認
+- [x] `status: published` に変更後、記事が一覧に追加されることを確認
