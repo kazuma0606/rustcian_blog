@@ -24,6 +24,27 @@ jobs:
           rm -rf content
           git clone https://x-access-token:${{ secrets.CONTENT_REPO_TOKEN }}@github.com/kazuma0606/rustcian_blog_content.git content
 
+      - name: Generate posts/index.json
+        run: |
+          # AzuritePostRepository は posts/index.json のマニフェストを参照する。
+          # az storage blob upload-batch は生ファイルしか転送しないため、
+          # アップロード前にインデックスを生成してコンテンツに含める。
+          INDEX="[]"
+          for meta in content/posts/*/meta.yml; do
+            slug=$(basename "$(dirname "$meta")")
+            status=$(grep -m1 '^status:' "$meta" | sed 's/status:[[:space:]]*//' | tr -d '"' | tr -d "'" | tr -d ' ')
+            entry=$(jq -n \
+              --arg slug "$slug" \
+              --arg status "$status" \
+              --arg meta "posts/$slug/meta.yml" \
+              --arg md "posts/$slug/post.md" \
+              '{slug:$slug,status:$status,meta_blob_name:$meta,markdown_blob_name:$md}')
+            INDEX=$(echo "$INDEX" | jq --argjson e "$entry" '. + [$e]')
+          done
+          echo "$INDEX" > content/posts/index.json
+          echo "Generated index with $(echo "$INDEX" | jq length) posts:"
+          echo "$INDEX" | jq '.[].slug + " (" + .status + ")"'
+
       - name: Log in to Azure (OIDC)
         uses: azure/login@v2
         with:
