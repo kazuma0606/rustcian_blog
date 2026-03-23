@@ -186,3 +186,93 @@ resource "azurerm_role_assignment" "github_storage_blobs" {
   role_definition_name = "Storage Blob Data Contributor"
   principal_id         = var.github_actions_principal_id
 }
+
+# ---------------------------------------------------------------------------
+# Dev / Staging environment
+# Isolated resource group and storage; shares monitoring, keyvault, openai,
+# comms, and registry with prod to minimise cost.
+# ---------------------------------------------------------------------------
+
+resource "azurerm_resource_group" "dev" {
+  name     = "${var.prefix}-dev-rg"
+  location = var.location
+
+  tags = {
+    environment = "dev"
+    project     = var.prefix
+  }
+}
+
+module "storage_dev" {
+  source              = "./modules/storage"
+  resource_group_name = azurerm_resource_group.dev.name
+  location            = azurerm_resource_group.dev.location
+  # Resolves to "rustaciandevst" — meets Azure 3-24 lowercase alphanum constraint.
+  prefix = "${var.prefix}-dev"
+}
+
+module "app_dev" {
+  source              = "./modules/app"
+  resource_group_name = azurerm_resource_group.dev.name
+  location            = azurerm_resource_group.dev.location
+  prefix              = "${var.prefix}-dev"
+  container_image     = var.container_image_dev
+  container_port      = var.container_port
+  # Smaller allocation: dev traffic is minimal.
+  container_cpu    = 0.25
+  container_memory = "0.5Gi"
+  key_vault_id     = module.keyvault.id
+  acr_login_server = module.registry.login_server
+
+  log_analytics_workspace_id = module.monitoring.workspace_id
+
+  env_vars = {
+    STORAGE_BACKEND        = "azurite"
+    AZURITE_BLOB_ENDPOINT  = module.storage_dev.blob_endpoint
+    STATIC_PUBLISH_BACKEND = "azurite"
+    STATIC_PUBLISH_PREFIX  = "site"
+
+    AZURITE_TABLE_ENDPOINT     = module.storage_dev.table_endpoint
+    AZURE_STORAGE_ACCOUNT_NAME = module.storage_dev.account_name
+
+    # Disable Entra auth for dev; admin panel accessible without token.
+    ADMIN_AUTH_MODE = "local-dev"
+
+    # Log to stdout in dev; no Application Insights needed.
+    OBSERVABILITY_BACKEND = "stdout"
+
+    AZURE_OPENAI_ENDPOINT   = module.openai.endpoint
+    AZURE_OPENAI_DEPLOYMENT = module.openai.deployment_name
+
+    ACS_ENDPOINT       = module.comms.endpoint
+    ACS_SENDER_ADDRESS = var.acs_sender_address
+
+    BASE_URL = var.base_url_dev
+  }
+
+  # Dev uses Managed Identity for storage; only API secrets are needed.
+  secret_env_vars = {
+    AZURE_OPENAI_API_KEY = module.keyvault.openai_api_key_uri
+    ACS_ACCESS_KEY       = module.keyvault.acs_access_key_uri
+  }
+}
+
+# Grant the dev Container App's managed identity access to dev storage.
+resource "azurerm_role_assignment" "dev_app_storage_tables" {
+  scope                = module.storage_dev.id
+  role_definition_name = "Storage Table Data Contributor"
+  principal_id         = module.app_dev.principal_id
+}
+
+resource "azurerm_role_assignment" "dev_app_storage_blobs" {
+  scope                = module.storage_dev.id
+  role_definition_name = "Storage Blob Data Contributor"
+  principal_id         = module.app_dev.principal_id
+}
+
+# Allow GitHub Actions SP to upload dev content blobs.
+resource "azurerm_role_assignment" "dev_github_storage_blobs" {
+  scope                = module.storage_dev.id
+  role_definition_name = "Storage Blob Data Contributor"
+  principal_id         = var.github_actions_principal_id
+}

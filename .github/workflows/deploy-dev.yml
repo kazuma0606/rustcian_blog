@@ -1,0 +1,88 @@
+name: Deploy Dev
+
+# Triggered on push to any dev branch, or manually.
+on:
+  push:
+    branches:
+      - "v*_dev"
+      - develop
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Image tag to deploy (default: dev-latest)"
+        required: false
+        default: "dev-latest"
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      id-token: write  # Required for OIDC login to Azure
+
+    environment: development
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set image tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "tag=${{ github.event.inputs.image_tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=dev-${{ github.sha }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Azure (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Log in to ACR
+        run: az acr login --name ${{ secrets.ACR_NAME }}
+
+      - name: Build and push dev image to ACR
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ secrets.ACR_LOGIN_SERVER }}/rustacian-blog:${{ steps.tag.outputs.tag }}
+            ${{ secrets.ACR_LOGIN_SERVER }}/rustacian-blog:dev-latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Update dev Container App image
+        run: |
+          IMAGE="${{ secrets.ACR_LOGIN_SERVER }}/rustacian-blog:${{ steps.tag.outputs.tag }}"
+          az containerapp update \
+            --name "${{ secrets.DEV_CONTAINER_APP_NAME }}" \
+            --resource-group "${{ secrets.DEV_RESOURCE_GROUP }}" \
+            --image "$IMAGE"
+
+      - name: Smoke test — health check
+        run: |
+          FQDN=$(az containerapp show \
+            --name "${{ secrets.DEV_CONTAINER_APP_NAME }}" \
+            --resource-group "${{ secrets.DEV_RESOURCE_GROUP }}" \
+            --query "properties.configuration.ingress.fqdn" \
+            --output tsv)
+          echo "Deployed to https://$FQDN"
+          for i in $(seq 1 6); do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" "https://$FQDN/health")
+            if [ "$STATUS" = "200" ]; then
+              echo "Health check passed (HTTP $STATUS)"
+              exit 0
+            fi
+            echo "Attempt $i: HTTP $STATUS — retrying in 10s..."
+            sleep 10
+          done
+          echo "Health check failed after retries" && exit 1

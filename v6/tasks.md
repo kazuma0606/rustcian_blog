@@ -83,11 +83,15 @@
 
 ## マイルストーン 5: ステージング環境（v6-D）
 
-- [ ] `terraform/main.tf` に `module "app_dev"` を追加
-- [ ] dev 専用 Storage Account `rustaciandevst` を追加
-- [ ] `.github/workflows/deploy-dev.yml` を作成
-- [ ] dev 用 GitHub Secrets を設定（`DEV_CONTAINER_APP_NAME`, `DEV_RESOURCE_GROUP`）
-- [ ] `terraform plan` で差分を確認してから apply
+- [x] `terraform/main.tf` に `module "app_dev"` + `module "storage_dev"` + `azurerm_resource_group.dev` を追加
+- [x] dev 専用 Storage Account `rustaciandevst`（monitoring/keyvault/openai/comms/registry は prod 共有）
+- [x] `terraform/variables.tf` に `container_image_dev`, `base_url_dev` を追加
+- [x] `terraform/terraform.tfvars` に dev セクション追加（初回デプロイ後に FQDN を記入）
+- [x] `terraform/outputs.tf` に `dev_container_app_hostname`, `dev_storage_account_name` を追加
+- [x] `.github/workflows/deploy-dev.yml` を作成（`v*_dev` / `develop` ブランチで自動起動、build + push + deploy）
+- [ ] GitHub Secrets に `DEV_CONTAINER_APP_NAME`, `DEV_RESOURCE_GROUP` を設定（手動）
+- [ ] `terraform plan` で差分を確認してから `terraform apply`（手動）
+- [ ] 初回デプロイ後に `container_image_dev`, `base_url_dev` を tfvars に記入
 
 ### 確認 🟢
 - [ ] dev Container App の FQDN にアクセスして動作確認

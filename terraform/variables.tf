@@ -117,3 +117,15 @@ variable "github_actions_principal_id" {
   type        = string
   default     = ""
 }
+
+variable "container_image_dev" {
+  description = "Full Docker image reference for the dev container (e.g. 'rustacianprodacr.azurecr.io/rustacian-blog:dev-latest'). Set after first deploy."
+  type        = string
+  default     = ""
+}
+
+variable "base_url_dev" {
+  description = "Public base URL for the dev environment (Container App FQDN or custom domain). Set after first deploy."
+  type        = string
+  default     = ""
+}

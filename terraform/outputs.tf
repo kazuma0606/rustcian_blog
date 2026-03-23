@@ -43,3 +43,13 @@ output "acr_login_server" {
   description = "ACR login server FQDN (use as image prefix in CI)."
   value       = module.registry.login_server
 }
+
+output "dev_container_app_hostname" {
+  description = "Default FQDN of the dev Container App ingress."
+  value       = module.app_dev.hostname
+}
+
+output "dev_storage_account_name" {
+  description = "Name of the dev Storage Account (rustaciandevst)."
+  value       = module.storage_dev.account_name
+}
