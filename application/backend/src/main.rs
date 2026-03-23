@@ -137,6 +137,12 @@ async fn main() -> std::io::Result<()> {
         translator: translator.clone(),
         config: config.clone(),
     };
+    if let Some(analytics) = &app_state.analytics
+        && let Err(e) = analytics.ensure_tables().await
+    {
+        eprintln!("analytics table init error: {e}");
+    }
+
     let bind_address = config.bind_address();
     let content_root = config.content_root.clone();
     let static_output_dir = config.static_output_dir.clone();

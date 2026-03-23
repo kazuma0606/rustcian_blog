@@ -4,6 +4,8 @@ use base64::{Engine as _, engine::general_purpose::STANDARD};
 use chrono::Utc;
 use sha2::{Digest, Sha256};
 
+use rustacian_blog_core::BlogError;
+
 use crate::table::AzuriteTableClient;
 
 const TABLE_PV: &str = "analyticspv";
@@ -23,6 +25,14 @@ impl AnalyticsWriter {
         Self {
             client: Arc::new(AzuriteTableClient::new(table_endpoint)),
         }
+    }
+
+    /// Create analytics tables if they don't exist yet. Call once at startup.
+    pub async fn ensure_tables(&self) -> Result<(), BlogError> {
+        self.client.create_table_if_needed(TABLE_PV).await?;
+        self.client.create_table_if_needed(TABLE_QUERIES).await?;
+        self.client.create_table_if_needed(TABLE_SESSIONS).await?;
+        Ok(())
     }
 
     /// Record a page view for `slug`. IP is hashed with a daily salt (no PII stored).
