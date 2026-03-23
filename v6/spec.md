@@ -4,148 +4,218 @@
 
 ---
 
-## 確定機能（ユーザー要件）
+## スコープ（確定）
 
-### v6-A: 記事カードのリデザイン
-
-**現状**: 縦並び（ヒーロー画像フルwidth → タイトル → 要約 → タグ）
-
-**目標**: Zenn 風の横並びカード
-
-```
-┌──────────────────────────────────────────────────────┐
-│  ┌─────────┐  タイトル                               │
-│  │         │  2026-03-23                             │
-│  │  hero   │  要約テキスト（description）...         │
-│  │ or BLOG │                                         │
-│  │  128px  │  [tag1] [tag2]                          │
-│  └─────────┘                                         │
-└──────────────────────────────────────────────────────┘
-```
-
-**実装内容**:
-- サムネイル: `hero_image` があれば表示、なければ `"BLOG"` テキストのプレイスホルダー（グレー背景 + 白文字）
-- サムネイルサイズ: 128×96px 固定（4:3）、`object-fit: cover`
-- 右側: タイトル、公開日、`description`（後述）、タグ
-- レスポンシブ: スマホでは縦並びにフォールバック
-- `summary_ai` があれば description の代わりに使用（既存挙動を維持）
-
-**`description` フィールドの追加**:
-- `PostMetadata` / `PostSummaryView` に `description: Option<String>` を追加
-- `meta.yml` で任意指定。未指定時は `summary` にフォールバック
-- 優先順位: `summary_ai` > `description` > `summary`
-
----
-
-### v6-B: Analytics 管理画面
-
-**現状**: `AnalyticsWriter` が Table Storage に PV / 検索 / 読了ステップを書き込むのみ。閲覧 UI なし。
-
-**実装内容**:
-
-`GET /admin/analytics` に以下を表示:
-
-```
-┌── 過去 30 日 ─────────────────────────────────────────┐
-│  総 PV: 1,234  ユニークIP: 456  検索数: 89            │
-└────────────────────────────────────────────────────────┘
-
-記事別 PV ランキング（上位 10）
-┌─────────────────────────────────────┬──────┐
-│ 記事タイトル                        │  PV  │
-├─────────────────────────────────────┼──────┤
-│ Building with Actix Web and Leptos  │  312 │
-│ Hello Rustacian Blog                │  201 │
-└─────────────────────────────────────┴──────┘
-
-人気検索クエリ（上位 10）
-検索語: "actix" (23回), "leptos" (18回), ...
-```
-
-- 集計は Table Storage の `analyticspv` / `analyticsqueries` テーブルを直接クエリ
-- 当月のみの集計（複雑な時系列グラフは v7 以降）
-- Entra ID 認証済みの管理者のみアクセス可
-
----
-
-### v6-C: ステージング環境（dev）
-
-**現状**: prod 環境のみ（`rustacian-prod-*`）。
-
-**目標**: dev 環境を Terraform で追加し、master push → prod、feature branch → dev に自動デプロイ。
-
-**実装内容**:
-
-Terraform:
-- `environment = "dev"` で同じモジュール構成を追加（prefix: `rustacian-dev-*`）
-- スペック縮小: `container_cpu = 0.25`, `container_memory = "0.5Gi"`, `min_replicas = 0`, `max_replicas = 1`
-- `ADMIN_AUTH_MODE = local-dev`（dev 環境は Basic 認証で簡略化）
-- dev 専用ストレージアカウント（`rustaciandevst`）
-
-GitHub Actions:
-- `ci.yml`: feature branch でも Docker build → dev ACR push
-- `deploy-dev.yml`: dev Container App のイメージ更新（PR マージ or 手動）
-- dev 用 GitHub Secrets: `DEV_CONTAINER_APP_NAME`, `DEV_RESOURCE_GROUP` など
-
-ドメイン:
-- `dev.rustacian-blog.com` または Container App の FQDN を直接使用（Cloudflare は prod のみ）
-
----
-
-## 提案機能（優先度順）
-
-### v6-D: ページネーション（記事一覧）
-
-現状は全記事が1ページに表示。記事が増えると UX 低下。
-
-- `GET /?page=1&per=10` 形式
-- 「← 前のページ」「次のページ →」ナビゲーション
-- 静的サイト生成時も page ディレクトリに対応
-
----
-
-### v6-E: OGP / SEO 強化
-
-現状: OGP タグなし → SNS シェア時に画像なし。
-
-- `<meta property="og:title">`, `og:description`, `og:image` を各ページに追加
-- `og:image`: hero_image があれば使用、なければデフォルト画像
-- `<meta name="twitter:card" content="summary_large_image">` も追加
-
----
-
-### v6-F: 読了時間の表示
-
-- 本文の文字数から概算（日本語: 400字/分、英語: 200words/分）
-- 記事カードと記事ページの両方に「約 X 分で読めます」を表示
-
----
-
-### v6-G: 関連記事
-
-- 記事詳細ページの末尾に、同タグの記事を最大3件表示
-- `list_posts` の結果をタグでフィルタするだけで実装可能
-
----
-
-### v6-H: コメント管理 UI（admin）
-
-現状: コメントは Table Storage に保存されるが、管理画面から確認・削除する UI がない。
-
-- `GET /admin/comments`: コメント一覧（記事・日時・内容）
-- `DELETE /admin/comments/{id}`: コメント削除
-
----
-
-## 実装優先度（提案）
-
-| 優先度 | 機能 | 理由 |
+| ID | 機能 | 優先度 |
 |---|---|---|
-| 🔴 高 | v6-A 記事カード | UX に直結、コンテンツが増える前に対応すべき |
-| 🔴 高 | v6-B Analytics | データはすでに蓄積中。早めに見れるようにしたい |
-| 🟡 中 | v6-C ステージング | 今後の開発で必須になる |
-| 🟡 中 | v6-E OGP | SNS からの流入に直結 |
-| 🟡 中 | v6-F 読了時間 | 実装コスト低・UX 向上 |
-| 🟢 低 | v6-D ページネーション | 記事10件以下のうちは不要 |
-| 🟢 低 | v6-G 関連記事 | 記事が増えてから |
-| 🟢 低 | v6-H コメント管理 | コメント機能の利用状況次第 |
+| v6-A | 記事カードリデザイン（1列・Zenn風） | 🔴 高 |
+| v6-B | Analytics 管理画面 + テストデータ投入 | 🔴 高 |
+| v6-C | ページネーション（10件/ページ） | 🔴 高 |
+| v6-D | ステージング環境（dev） | 🟡 中 |
+| v6-E | OGP / SEO 強化 | 🟡 中 |
+| v6-F | 読了時間表示 | 🟡 中 |
+
+---
+
+## v6-A: 記事カードリデザイン
+
+### デザイン仕様
+
+Zenn 参考画像に基づく1列レイアウト:
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│  ┌──────────┐  タイトル（h2）                                │
+│  │          │  2026-03-23   約 3 分                          │
+│  │  image   │                                                │
+│  │ or BLOG  │  description / summary_ai / summary の優先順  │
+│  │ 100×75px │  で表示するテキスト（2〜3行）                  │
+│  └──────────┘  [tag1] [tag2]                                 │
+└──────────────────────────────────────────────────────────────┘
+```
+
+- **1列**（タイル形式ではない）
+- サムネイル: `100×75px`（4:3）, `object-fit: cover`, 角丸 6px
+- hero_image なし → グレー背景 + "BLOG" 白文字プレイスホルダー
+- 配色は既存サイトに合わせる（`--card-bg`, `--text` 等の CSS 変数を使用）
+- モバイル（`max-width: 600px`）: サムネイル `80×60px`、テキスト折り返し
+
+### description フィールドの追加
+
+`meta.yml` に任意フィールド `description` を追加（既存記事は `summary` にフォールバック）。
+
+表示優先順位: `summary_ai` > `description` > `summary`
+
+**影響箇所**:
+- `application/core/src/domain/post.rs` — `PostMetadata` に `description: Option<String>`
+- `application/core/src/domain/post.rs` — `PostSummary` に `description: Option<String>`
+- `application/frontend/src/lib.rs` — `PostSummaryView` に `description: Option<String>`
+- `application/backend/src/storage.rs` — メタデータパース部分
+- `application/frontend/src/lib.rs` — `PostsPage` コンポーネントのカード描画
+
+---
+
+## v6-B: Analytics 管理画面
+
+### テーブルスキーマ（実装に合わせた型定義）
+
+**`analyticspv`**（ページビュー）:
+| フィールド | 型 | 説明 |
+|---|---|---|
+| PartitionKey | String | 日付 `"YYYY-MM-DD"` |
+| RowKey | String | `"{slug}_{timestamp_ms}"` |
+| slug | String | 記事スラッグ |
+| ip_hash | String | IP + 日付の SHA256 先頭8バイト (base64) |
+
+**`analyticsqueries`**（検索クエリ）:
+| フィールド | 型 | 説明 |
+|---|---|---|
+| PartitionKey | String | 日付 `"YYYY-MM-DD"` |
+| RowKey | String | `"{timestamp_ms}"` |
+| query | String | 検索語 |
+| result_count | String | 結果件数（**文字列**として格納） |
+
+**`analyticssessions`**（閲覧セッション）:
+| フィールド | 型 | 説明 |
+|---|---|---|
+| PartitionKey | String | `"{ip_hash}_{date}"` |
+| RowKey | String | `"{timestamp_ms}"` |
+| slug | String | 記事スラッグ |
+
+### テストデータ投入
+
+`az storage entity insert` で直接投入（Managed Identity or account key 使用）。
+検証用として過去 3 日分のダミーデータを以下の件数で作成:
+
+| 日付 | PV | 検索 | セッション |
+|---|---|---|---|
+| 2026-03-21 | 10件 | 4件 | 8件 |
+| 2026-03-22 | 18件 | 7件 | 14件 |
+| 2026-03-23 | 6件 | 2件 | 5件 |
+
+### 管理画面 UI（`GET /admin/analytics`）
+
+```
+過去30日サマリー
+┌──────────────────────────────────────────────────┐
+│  総 PV: 34   ユニーク IP: 9   検索数: 13         │
+└──────────────────────────────────────────────────┘
+
+記事別 PV（上位10）
+actix-and-leptos        ████████████  20
+hello-rustacian-blog    ████████       10
+verification-test       ████            4
+
+人気検索クエリ（上位10）
+"actix" 5回  "rust" 4回  "leptos" 4回
+```
+
+**実装**:
+- Table Storage の `analyticspv` を `$filter=PartitionKey ge '2026-02-23'` でクエリ
+- Rust 側で集計（外部 BI ツール不使用）
+- `AzuriteTableClient` の `query_entities` を使用（読み取り専用）
+- Entra ID 認証済み管理者のみアクセス可（既存 `authenticate_admin` ミドルウェアを適用）
+
+---
+
+## v6-C: ページネーション
+
+### 仕様
+
+- `GET /?page=1`（デフォルト page=1）
+- 1ページ = 10件（`PER_PAGE = 10`）
+- 空リストでもページネーションボタンを表示（検証しやすくするため）
+- ページ下部に以下のナビゲーション:
+
+```
+                    ← Prev    1 / 3    Next →
+```
+
+- page=1 のとき `← Prev` は非活性（リンクなし・グレー）
+- 最終ページのとき `Next →` は非活性
+- URL: `/?page=N`（タグページは `/tags/<tag>?page=N`）
+
+**実装**:
+- `list_posts` の結果をバックエンドでスライス
+- `render_posts_page` に `page: usize`, `total_pages: usize` を追加
+- 静的サイト生成時は `/page/2/index.html` 等を出力（v6 では対応しない、動的配信のみ）
+
+---
+
+## v6-D: ステージング環境
+
+### Terraform 構成
+
+既存の prod モジュールと同じ構成を `environment = "dev"` で追加:
+
+```hcl
+# terraform/main.tf に dev ブロックを追加
+module "app_dev" {
+  source = "./modules/app"
+  prefix = "rustacian-dev"
+  container_cpu    = 0.25
+  container_memory = "0.5Gi"
+  # ADMIN_AUTH_MODE = local-dev（Basic認証）
+  # min_replicas = 0, max_replicas = 1
+}
+```
+
+- dev 専用 Storage Account: `rustaciandevst`
+- dev 専用 ACR タグ: `rustacianprodacr.azurecr.io/rustacian-blog:dev-<sha>`
+- ドメイン: Container App FQDN をそのまま使用（Cloudflare 不要）
+
+### GitHub Actions
+
+- `ci.yml`: master push → prod ACR push（変更なし）
+- `deploy-dev.yml`（新規）: feature branch push → dev Container App 更新
+- dev 用 Secrets: `DEV_CONTAINER_APP_NAME`, `DEV_RESOURCE_GROUP`
+
+---
+
+## v6-E: OGP / SEO 強化
+
+各ページの `<head>` に以下を追加:
+
+```html
+<!-- 記事ページ -->
+<meta property="og:title" content="記事タイトル | Rustacian Blog">
+<meta property="og:description" content="description / summary_ai / summary">
+<meta property="og:image" content="hero_image URL or デフォルト画像">
+<meta property="og:url" content="https://rustacian-blog.com/p/{slug}">
+<meta property="og:type" content="article">
+<meta name="twitter:card" content="summary_large_image">
+
+<!-- トップページ -->
+<meta property="og:type" content="website">
+<meta property="og:image" content="https://rustacian-blog.com/images/og-default.png">
+```
+
+- デフォルト OGP 画像 (`og-default.png`) を `content/images/` に追加
+- `render_post_page` / `render_posts_page` の `<head>` 生成を拡張
+
+---
+
+## v6-F: 読了時間表示
+
+```rust
+fn estimate_read_minutes(body: &str) -> usize {
+    // 日本語: 400字/分、英語: 200words/分 の混在を考慮
+    let char_count = body.chars().count();
+    ((char_count as f64 / 400.0).ceil() as usize).max(1)
+}
+```
+
+- `Post` / `PostSummary` に `read_minutes: usize` を追加
+- 記事カード: `約 N 分` をサムネイル下または日付の隣に表示
+- 記事ページ: タイトル下に `約 N 分で読めます` を表示
+
+---
+
+## 実装順序（推奨）
+
+1. **v6-A** 記事カード + description フィールド（フロントエンド中心）
+2. **v6-F** 読了時間（v6-A と同時に実装できる）
+3. **v6-C** ページネーション（バックエンド + フロントエンド）
+4. **v6-B** Analytics テストデータ + 管理画面
+5. **v6-E** OGP（ヘッド生成の改修）
+6. **v6-D** ステージング環境（Terraform・インフラ作業）
