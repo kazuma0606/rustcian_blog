@@ -1,10 +1,10 @@
-output "app_service_hostname" {
-  description = "Default hostname of the App Service."
+output "container_app_hostname" {
+  description = "Default FQDN of the Container App ingress."
   value       = module.app.hostname
 }
 
-output "app_service_principal_id" {
-  description = "Object ID of the App Service's system-assigned managed identity."
+output "container_app_principal_id" {
+  description = "Object ID of the Container App's system-assigned managed identity."
   value       = module.app.principal_id
 }
 
@@ -32,4 +32,14 @@ output "openai_endpoint" {
 output "openai_deployment_name" {
   description = "Name of the Azure OpenAI model deployment."
   value       = module.openai.deployment_name
+}
+
+output "acs_endpoint" {
+  description = "Azure Communication Services endpoint URL."
+  value       = module.comms.endpoint
+}
+
+output "acr_login_server" {
+  description = "ACR login server FQDN (use as image prefix in CI)."
+  value       = module.registry.login_server
 }

@@ -10,10 +10,9 @@ variable "prefix" {
   type = string
 }
 
-variable "sku_name" {
-  description = "App Service Plan SKU (e.g. 'B1', 'P1v3')."
+variable "log_analytics_workspace_id" {
+  description = "Resource ID of the Log Analytics workspace for the Container Apps Environment."
   type        = string
-  default     = "B1"
 }
 
 variable "container_image" {
@@ -27,13 +26,38 @@ variable "container_port" {
   default     = 8080
 }
 
-variable "app_settings" {
-  description = "Map of application settings to pass to the web app."
+variable "container_cpu" {
+  description = "vCPU allocation for the container (e.g. 0.5, 1.0)."
+  type        = number
+  default     = 0.5
+}
+
+variable "container_memory" {
+  description = "Memory allocation for the container (e.g. '1Gi', '2Gi')."
+  type        = string
+  default     = "1Gi"
+}
+
+variable "env_vars" {
+  description = "Map of plain (non-secret) environment variables to inject into the container."
   type        = map(string)
   default     = {}
 }
 
+variable "secret_env_vars" {
+  description = "Map of env-var-name -> Key Vault secret URI. Each entry is exposed as a secret-backed environment variable."
+  type        = map(string)
+  default     = {}
+  sensitive   = true
+}
+
 variable "key_vault_id" {
-  description = "Resource ID of the Key Vault. Used to enable Key Vault reference resolution."
+  description = "Resource ID of the Key Vault. The module grants Key Vault Secrets User to the Container App's managed identity."
   type        = string
+}
+
+variable "acr_login_server" {
+  description = "Login server hostname for the Azure Container Registry (e.g. myacr.azurecr.io). Used to configure managed-identity pull access."
+  type        = string
+  default     = ""
 }

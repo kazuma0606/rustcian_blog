@@ -35,6 +35,14 @@ pub struct AppConfig {
     pub slack_webhook_url: Option<String>,
     pub cloudflare_zone_id: Option<String>,
     pub cloudflare_api_token: Option<String>,
+    pub azure_vision_endpoint: Option<String>,
+    pub azure_vision_api_key: Option<String>,
+    pub azure_translator_endpoint: Option<String>,
+    pub azure_translator_api_key: Option<String>,
+    pub acs_endpoint: Option<String>,
+    pub acs_access_key: Option<String>,
+    pub acs_sender_address: Option<String>,
+    pub acs_recipient_address: Option<String>,
 }
 
 impl AppConfig {
@@ -106,6 +114,14 @@ impl AppConfig {
             slack_webhook_url: env::var("SLACK_WEBHOOK_URL").ok(),
             cloudflare_zone_id: env::var("CLOUDFLARE_ZONE_ID").ok(),
             cloudflare_api_token: env::var("CLOUDFLARE_API_TOKEN").ok(),
+            azure_vision_endpoint: env::var("AZURE_VISION_ENDPOINT").ok(),
+            azure_vision_api_key: env::var("AZURE_VISION_API_KEY").ok(),
+            azure_translator_endpoint: env::var("AZURE_TRANSLATOR_ENDPOINT").ok(),
+            azure_translator_api_key: env::var("AZURE_TRANSLATOR_API_KEY").ok(),
+            acs_endpoint: env::var("ACS_ENDPOINT").ok(),
+            acs_access_key: env::var("ACS_ACCESS_KEY").ok(),
+            acs_sender_address: env::var("ACS_SENDER_ADDRESS").ok(),
+            acs_recipient_address: env::var("ACS_RECIPIENT_ADDRESS").ok(),
         })
     }
 

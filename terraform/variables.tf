@@ -16,10 +16,22 @@ variable "environment" {
   default     = "dev"
 }
 
-variable "app_service_sku" {
-  description = "App Service Plan SKU (e.g. 'B1' for dev, 'P1v3' for prod)."
+variable "container_cpu" {
+  description = "vCPU allocation for the Container App (e.g. 0.25 for dev, 1.0 for prod)."
+  type        = number
+  default     = 0.5
+}
+
+variable "container_memory" {
+  description = "Memory allocation for the Container App (e.g. '1Gi' for dev, '2Gi' for prod)."
   type        = string
-  default     = "B1"
+  default     = "1Gi"
+}
+
+variable "acs_sender_address" {
+  description = "ACS Email sender address (e.g. DoNotReply@<verified-acs-domain>)."
+  type        = string
+  default     = ""
 }
 
 variable "container_image" {
@@ -92,4 +104,16 @@ variable "openai_model_capacity" {
   description = "Token-per-minute capacity (thousands) for the OpenAI deployment."
   type        = number
   default     = 10
+}
+
+variable "acr_sku" {
+  description = "Azure Container Registry SKU ('Basic' for dev, 'Standard' for prod)."
+  type        = string
+  default     = "Basic"
+}
+
+variable "github_actions_principal_id" {
+  description = "Object ID of the GitHub Actions OIDC service principal (AcrPush role). Run: az ad sp show --id <client-id> --query id -o tsv"
+  type        = string
+  default     = ""
 }

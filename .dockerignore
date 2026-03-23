@@ -1,0 +1,10 @@
+target/
+dist/
+.git/
+.github/
+terraform/
+v3/
+v5/
+*.md
+.env*
+.dockerignore

@@ -9,3 +9,8 @@ output "instrumentation_key" {
   value       = azurerm_application_insights.main.instrumentation_key
   sensitive   = true
 }
+
+output "workspace_id" {
+  description = "Resource ID of the Log Analytics workspace (used by Container Apps Environment)."
+  value       = azurerm_log_analytics_workspace.main.id
+}

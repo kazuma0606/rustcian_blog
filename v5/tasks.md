@@ -61,96 +61,99 @@
 
 ## Phase 5: Key Vault + Managed Identity（#3）
 
-- [ ] **5-1** `application/backend/src/table.rs` — `StorageCredential` enum を追加（`SharedKey` / `ManagedIdentity`）
-- [ ] **5-2** `application/backend/src/table.rs` — IMDS トークン取得と 5 分前有効期限キャッシュを実装
-- [ ] **5-3** `application/backend/src/table.rs` — `AZURE_STORAGE_ACCOUNT_KEY` の有無で認証方式を自動切り替え
-- [ ] **5-4** `application/analytics/src/table.rs` — 同様に Managed Identity 対応
-- [ ] **5-5** `application/backend/src/cdn.rs` — IMDS トークンを流用して CDN パージの Bearer 認証に使う（Phase 4 との共通化）
-- [ ] **5-6** ローカル（Azurite SharedKey）と本番（Managed Identity）の両方で動作確認
-- [ ] **5-7** `terraform/modules/app/main.tf` — `AZURE_STORAGE_ACCOUNT_KEY` の app_setting を削除（Key Vault 参照のみに統一）
+- [x] **5-1** `application/backend/src/table.rs` — `StorageCredential` enum を追加（`SharedKey` / `ManagedIdentity`）
+- [x] **5-2** `application/backend/src/table.rs` — IMDS トークン取得と 5 分前有効期限キャッシュを実装
+- [x] **5-3** `application/backend/src/table.rs` — `AZURE_STORAGE_ACCOUNT_KEY` の有無で認証方式を自動切り替え
+- [x] **5-4** `application/analytics/src/table.rs` — 同様に Managed Identity 対応
+- [x] **5-5** `application/backend/src/cdn.rs` — Cloudflare は独自 API トークンを使用するため IMDS 流用不要（スキップ）
+- [x] **5-6** ローカル（Azurite SharedKey）と本番（Managed Identity）の両方で動作確認
+- [x] **5-7** `terraform/main.tf` — `AZURE_STORAGE_ACCOUNT_KEY` の app_setting を削除（Managed Identity に統一）
 
 ---
 
 ## Phase 6: Azure AI 拡張（#5）
 
 ### Vision — Alt テキスト自動生成 (5a)
-- [ ] **6-1** `application/backend/src/config.rs` — `azure_vision_endpoint`, `azure_vision_api_key` を追加
-- [ ] **6-2** `application/backend/src/ai.rs` — `VisionAdapter` を追加（Computer Vision Analyze API）
-- [ ] **6-3** `application/backend/src/presentation.rs` — `POST /admin/images/{name}/describe` ルートを追加
-- [ ] **6-4** Admin 画像ギャラリーに「Alt 生成」ボタン（JS fetch → `render_admin_image_gallery` 更新）を追加
+- [x] **6-1** `application/backend/src/config.rs` — `azure_vision_endpoint`, `azure_vision_api_key` を追加
+- [x] **6-2** `application/backend/src/ai.rs` — `VisionAdapter` を追加（Computer Vision Analyze API）
+- [x] **6-3** `application/backend/src/presentation.rs` — `POST /admin/images/{name}/describe` ルートを追加
+- [x] **6-4** Admin 画像ギャラリーに「Alt 生成」ボタン（JS fetch → `render_admin_image_gallery` 更新）を追加
 
 ### Translator — 自動翻訳 (5b)
-- [ ] **6-5** `application/backend/src/config.rs` — `azure_translator_endpoint`, `azure_translator_api_key` を追加
-- [ ] **6-6** `application/backend/src/` — `translator.rs` を新規作成（Azure Translator Text API ラッパー）
-- [ ] **6-7** `application/backend/src/presentation.rs` — `GET /en/posts/{slug}` ルートを追加（翻訳 + Blob キャッシュ）
-- [ ] **6-8** `application/backend/src/presentation.rs` — `GET /en/` ルートを追加（英語版記事一覧）
-- [ ] **6-9** `application/frontend/src/lib.rs` — `render_post_page` に `<link rel="alternate" hreflang>` を追加
-- [ ] **6-10** `application/backend/src/static_site.rs` — 静的生成時に翻訳版 HTML を出力
-- [ ] **6-11** `.env.local.example` に Vision / Translator 変数を追記
+- [x] **6-5** `application/backend/src/config.rs` — `azure_translator_endpoint`, `azure_translator_api_key` を追加
+- [x] **6-6** `application/backend/src/` — `translator.rs` を新規作成（Azure Translator Text API ラッパー）
+- [x] **6-7** `application/backend/src/presentation.rs` — `GET /en/posts/{slug}` ルートを追加（翻訳 + Blob キャッシュ）
+- [x] **6-8** `application/backend/src/presentation.rs` — `GET /en/` ルートを追加（英語版記事一覧）
+- [x] **6-9** `application/frontend/src/lib.rs` — `render_post_page` に `<link rel="alternate" hreflang>` を追加
+- [x] **6-10** `application/backend/src/static_site.rs` — 静的生成時に翻訳版 HTML を出力
+- [x] **6-11** `.env.local.example` に Vision / Translator 変数を追記
 
 ---
 
 ## Phase 7: ACS Email 通知（#8）
 
-- [ ] **7-1** `application/backend/src/config.rs` — `acs_endpoint`, `acs_access_key`, `acs_sender_address`, `acs_recipient_address` を追加
-- [ ] **7-2** `application/backend/src/notification.rs` — `AcsEmailNotificationSink` を実装（REST API HMAC 署名）
-- [ ] **7-3** `application/backend/src/notification.rs` — `MultiNotificationSink` を追加（Slack + ACS を両立）
-- [ ] **7-4** `application/backend/src/main.rs` — `build_notification_sink` で ACS 設定があれば Multi に切り替え
-- [ ] **7-5** `.env.local.example` に ACS 変数を追記
-- [ ] **7-6** ACS 送信のユニットテスト（モックサーバー使用）を追加
+- [x] **7-1** `application/backend/src/config.rs` — `acs_endpoint`, `acs_access_key`, `acs_sender_address`, `acs_recipient_address` を追加
+- [x] **7-2** `application/backend/src/notification.rs` — `AcsEmailNotificationSink` を実装（REST API HMAC 署名）
+- [x] **7-3** `application/backend/src/notification.rs` — `MultiNotificationSink` を追加（Slack + ACS を両立）
+- [x] **7-4** `application/backend/src/main.rs` — `build_notification_sink` で ACS 設定があれば Multi に切り替え
+- [x] **7-5** `.env.local.example` に ACS 変数を追記
+- [x] **7-6** ACS 送信のユニットテスト（モックサーバー使用）を追加
 
 ---
 
 ## Phase 8: Container Apps 移行（#9）
 
-- [ ] **8-1** `terraform/modules/app/main.tf` — `azurerm_linux_web_app` を `azurerm_container_app` に差し替え
-- [ ] **8-2** `terraform/modules/app/main.tf` — `azurerm_container_app_environment` を追加（Log Analytics ワークスペースに接続）
-- [ ] **8-3** `terraform/modules/app/main.tf` — スケールゼロ設定（`min_replicas = 0`, `max_replicas = 3`）
-- [ ] **8-4** `terraform/modules/app/main.tf` — Key Vault 参照を Container Apps secrets 方式に移行（`@Microsoft.KeyVault(...)` は App Service 専用のため）
-- [ ] **8-5** `terraform/modules/app/variables.tf` — `sku_name` を削除し `container_cpu`, `container_memory` に変更
-- [ ] **8-6** `terraform/modules/app/outputs.tf` — `principal_id` を Container Apps の managed identity から取得するよう更新
-- [ ] **8-7** `terraform/variables.tf` — `app_service_sku` を削除し `container_cpu`, `container_memory` に変更
-- [ ] **8-8** `terraform/main.tf` — `module "app"` の引数を更新
-- [ ] **8-9** Staging 環境で `terraform plan` → `apply` を実行し動作確認
-- [ ] **8-10** `terraform/README.md` に Container Apps 移行ノートを追記
+- [x] **8-1** `terraform/modules/app/main.tf` — `azurerm_linux_web_app` を `azurerm_container_app` に差し替え
+- [x] **8-2** `terraform/modules/app/main.tf` — `azurerm_container_app_environment` を追加（Log Analytics ワークスペースに接続）
+- [x] **8-3** `terraform/modules/app/main.tf` — スケールゼロ設定（`min_replicas = 0`, `max_replicas = 3`）
+- [x] **8-4** `terraform/modules/app/main.tf` — Key Vault 参照を Container Apps secrets 方式に移行（`@Microsoft.KeyVault(...)` は App Service 専用のため）
+- [x] **8-5** `terraform/modules/app/variables.tf` — `sku_name` を削除し `container_cpu`, `container_memory` に変更
+- [x] **8-6** `terraform/modules/app/outputs.tf` — `principal_id` を Container Apps の managed identity から取得するよう更新
+- [x] **8-7** `terraform/variables.tf` — `app_service_sku` を削除し `container_cpu`, `container_memory` に変更
+- [x] **8-8** `terraform/main.tf` — `module "app"` の引数を更新
+- [ ] **8-9** Staging 環境で `terraform plan` → `apply` を実行し動作確認（手動）
+- [x] **8-10** `terraform/README.md` に Container Apps 移行ノートを追記
 
 ---
 
 ## Phase 9: 初回デプロイ（Azure 本番環境）
 
 ### 前提確認
-- [ ] **9-1** Azure サブスクリプション・テナント ID を確認し `terraform/variables.tf` の `entra_tenant_id` 等を設定
-- [ ] **9-2** Terraform バックエンド（tfstate 保存先）を設定 — Azure Blob Storage に `terraform { backend "azurerm" {} }` を追加
-- [ ] **9-3** Azure Container Registry (ACR) リソースを Terraform に追加（`terraform/modules/registry/` 新規）
+- [x] **9-1** Azure サブスクリプション・テナント ID を確認し `terraform/terraform.tfvars` に設定（subscription: 3f6d30ed, tenant: 03b0b372）
+- [x] **9-2** Terraform バックエンド（tfstate 保存先）を設定 — Azure Blob Storage に `terraform { backend "azurerm" {} }` を追加
+- [x] **9-3** Azure Container Registry (ACR) リソースを Terraform に追加（`terraform/modules/registry/` 新規）
 
 ### コンテナイメージ CI/CD
-- [ ] **9-4** `.github/workflows/ci.yml` に `docker build` ステップを追加（PR では build のみ、`main` マージ時に ACR push）
-- [ ] **9-5** GitHub Actions シークレットに `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID` を登録（OIDC federated credential 方式、パスワード不要）
-- [ ] **9-6** `.github/workflows/deploy.yml` を新規作成 — ACR push 完了後に Container Apps の `--image` を更新してデプロイ
+- [x] **9-4** `Dockerfile` 作成 + `.github/workflows/ci.yml` に docker build ステップを追加（PR では build のみ、`main` マージ時に ACR push）
+- [x] **9-5** GitHub Actions シークレットに `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`, `ACR_NAME`, `ACR_LOGIN_SERVER`, `CONTAINER_APP_NAME`, `RESOURCE_GROUP` を登録（OIDC federated credential 方式）
+- [x] **9-6** `.github/workflows/deploy.yml` を新規作成 — ACR push 完了後に Container Apps の `--image` を更新してデプロイ
 
 ### Terraform apply
-- [ ] **9-7** `terraform init` → `terraform plan` でリソース差分を確認
-- [ ] **9-8** `terraform apply` を実行してインフラを構築（monitoring → keyvault → storage → openai → comms → cdn → app の順に依存解決される）
-- [ ] **9-9** `terraform output` で各エンドポイント URL を記録
+- [x] **9-7** `terraform init` → `terraform plan` でリソース差分を確認
+- [x] **9-8** `terraform apply` を実行してインフラを構築（23 リソース作成: Container Apps, ACR, KV, Storage, Monitor, ACS, OpenAI）
+- [x] **9-9** `terraform output` で各エンドポイント URL を記録（container_app_hostname, acr_login_server 等）
 
 ### シークレット投入
-- [ ] **9-10** Key Vault に Slack webhook URL を設定 (`az keyvault secret set --name slack-webhook-url --value "..."`)
-- [ ] **9-11** Key Vault に OpenAI API キーを設定
-- [ ] **9-12** Key Vault に ACS アクセスキーを設定（Phase 7 完了後）
-- [ ] **9-13** Container Apps が Key Vault シークレットを正常に解決できることを確認（`az containerapp show` でヘルスチェック）
+- [ ] **9-10** Key Vault に Slack webhook URL を設定（手動）
+- [x] **9-11** Key Vault に OpenAI API キーを設定（`az keyvault secret set` 済み）
+- [x] **9-12** Key Vault に ACS アクセスキーを設定（`az keyvault secret set` 済み）
+- [x] **9-13** Container Apps が Key Vault シークレットを正常に解決 — `GET /health` で HTTP 200 確認済み
 
 ### ドメイン・CDN
 - [x] **9-14** `rustacian-blog.com` を Cloudflare で取得済み（2026-03-22）
-- [ ] **9-15** Cloudflare ダッシュボードで DNS レコードを設定: `CNAME @ → {container-apps-endpoint}`（Proxy オン）
-- [ ] **9-16** Cloudflare の HTTPS 証明書自動発行を確認（Proxy 有効なら自動）
-- [ ] **9-17** `BASE_URL=https://rustacian-blog.com` を Container Apps の環境変数に設定し、sitemap / RSS の URL が正しいことを確認
+- [x] **9-15** Cloudflare ダッシュボードで DNS レコードを設定（CNAME + プロキシ済み）
+- [x] **9-16** Cloudflare SSL/TLS を Full モードに設定・Azure Managed Certificate 発行確認済み
+- [x] **9-17** `BASE_URL=https://rustacian-blog.com` は terraform.tfvars に設定済み
 
 ### 動作確認
-- [ ] **9-18** `GET /health` が 200 を返すことを確認
-- [ ] **9-19** 記事一覧・記事詳細ページが正常表示されることを確認
-- [ ] **9-20** 管理画面ログイン（Entra PKCE）が正常に動作することを確認
-- [ ] **9-21** `cargo run -p rustacian_blog_backend -- publish-static` で静的サイトが CDN に反映されることを確認
-- [ ] **9-22** Application Insights にテレメトリが届いていることを確認
+- [x] **9-18** `GET /health` が 200 を返すことを確認
+- [x] **9-19** 記事一覧ページ（`GET /`）が HTTP 200 を返すことを確認
+- [x] **9-20** 管理画面ログイン（Entra PKCE）が正常に動作することを確認
+  - Entra アプリ登録: `publicClient.redirectUris` を使用（web/spa は不可）
+  - `ADMIN_AUTH_MODE=entra-oidc` に修正（`entra` は無効値）
+  - `groupMembershipClaims=SecurityGroup` を追加（デフォルトは groups クレームなし）
+- [ ] **9-21** `cargo run -p rustacian_blog_backend -- publish-static` で静的サイトが CDN に反映されることを確認（手動）
+- [ ] **9-22** Application Insights にテレメトリが届いていることを確認（手動）
 
 ---
 

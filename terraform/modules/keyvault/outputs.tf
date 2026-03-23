@@ -27,3 +27,8 @@ output "storage_account_key_uri" {
   description = "Versioned URI of the storage account key secret."
   value       = azurerm_key_vault_secret.storage_account_key.versionless_id
 }
+
+output "acs_access_key_uri" {
+  description = "Versionless URI of the ACS access key secret."
+  value       = azurerm_key_vault_secret.acs_access_key.versionless_id
+}

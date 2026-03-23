@@ -11,10 +11,11 @@ use rustacian_blog_core::{
     PostSummary, PostVisibility, SearchQuery,
 };
 use rustacian_blog_frontend::{
-    CommentView, GeneratedMetadataView, ImageView, SearchResultView, render_admin_comments,
-    render_admin_dashboard, render_admin_image_gallery, render_admin_post_detail,
-    render_admin_static_panel, render_comment_list, render_contact_page, render_login_page,
-    render_post_page, render_posts_page, render_search_page,
+    CommentView, GeneratedMetadataView, ImageView, PostSummaryView, SearchResultView,
+    render_admin_comments, render_admin_dashboard, render_admin_image_gallery,
+    render_admin_post_detail, render_admin_static_panel, render_comment_list, render_contact_page,
+    render_en_post_page, render_en_posts_page, render_login_page, render_post_page,
+    render_posts_page, render_search_page,
 };
 use std::{fs, path::Path};
 
@@ -40,7 +41,9 @@ fn public_routes(cfg: &mut web::ServiceConfig) {
         .service(post_comment)
         .service(contact_page)
         .service(post_contact)
-        .service(search_page);
+        .service(search_page)
+        .service(en_index)
+        .service(en_post_page);
 }
 
 fn admin_routes(cfg: &mut web::ServiceConfig) {
@@ -59,7 +62,8 @@ fn admin_routes(cfg: &mut web::ServiceConfig) {
         .service(admin_list_images)
         .service(admin_upload_image)
         .service(admin_delete_image)
-        .service(admin_set_hero);
+        .service(admin_set_hero)
+        .service(admin_describe_image);
 }
 
 #[get("/health")]
@@ -134,10 +138,17 @@ async fn post_page(
     if let Some(analytics) = &data.analytics {
         let ip = peer_ip(&request);
         analytics.record_page_view(slug.clone(), ip.clone());
-        analytics.record_session_step(slug, ip);
+        analytics.record_session_step(slug.clone(), ip);
     }
 
-    Ok(html_response(render_post_page(map_post(post))))
+    let en_url = data
+        .translator
+        .is_some()
+        .then(|| format!("/en/posts/{}", &slug));
+    Ok(html_response(render_post_page(
+        map_post(post),
+        en_url.as_deref(),
+    )))
 }
 
 #[get("/images/{path:.*}")]
@@ -203,7 +214,7 @@ async fn admin_preview_placeholder(
         .await
         .map_err(api_app_error)?;
 
-    Ok(html_response(render_post_page(map_post(post))))
+    Ok(html_response(render_post_page(map_post(post), None)))
 }
 
 #[get("/posts/{slug}")]
@@ -1039,6 +1050,119 @@ fn map_summaries(posts: Vec<PostSummary>) -> Vec<rustacian_blog_frontend::PostSu
         .collect()
 }
 
+// ---------------------------------------------------------------------------
+// English translation routes
+// ---------------------------------------------------------------------------
+
+#[get("/en/")]
+async fn en_index(data: web::Data<AppState>) -> Result<HttpResponse> {
+    if data.translator.is_none() {
+        return Err(actix_web::error::ErrorServiceUnavailable(
+            "Translator not configured",
+        ));
+    }
+    let summaries = data.list_posts.execute().await.map_err(page_app_error)?;
+    let views: Vec<PostSummaryView> = summaries
+        .into_iter()
+        .map(|s| PostSummaryView {
+            title: s.title,
+            slug: s.slug,
+            published_at: s.published_at.format("%Y-%m-%d").to_string(),
+            updated_at: s.updated_at.map(|d| d.format("%Y-%m-%d").to_string()),
+            tags: s.tags,
+            summary: s.summary,
+            hero_image: None,
+            toc: false,
+            math: false,
+            summary_ai: s.summary_ai,
+            status: "published".to_owned(),
+        })
+        .collect();
+    Ok(html_response(render_en_posts_page(views)))
+}
+
+#[get("/en/posts/{slug}")]
+async fn en_post_page(path: web::Path<String>, data: web::Data<AppState>) -> Result<HttpResponse> {
+    let translator = data
+        .translator
+        .as_ref()
+        .ok_or_else(|| actix_web::error::ErrorServiceUnavailable("Translator not configured"))?;
+    let slug = path.into_inner();
+
+    // Serve from blob cache if available.
+    let cache_key = format!("translations/{slug}/index.html");
+    if let Some(blob) = data.image_blob.as_ref()
+        && let Ok(Some(cached)) = blob.get_text(&cache_key).await
+    {
+        return Ok(html_response(cached));
+    }
+
+    let post = data
+        .get_post
+        .execute(&slug)
+        .await
+        .map_err(|_| actix_web::error::ErrorNotFound("post not found"))?;
+
+    let mut view = map_post(post);
+
+    // Translate title and body.
+    let en_title = translator
+        .translate_text(&view.title)
+        .await
+        .map_err(|e| actix_web::error::ErrorInternalServerError(e.to_string()))?;
+    let en_body = translator
+        .translate_html(&view.body_html)
+        .await
+        .map_err(|e| actix_web::error::ErrorInternalServerError(e.to_string()))?;
+
+    view.title = en_title;
+    view.body_html = en_body;
+
+    let ja_url = format!("/posts/{slug}");
+    let html = render_en_post_page(view, &ja_url);
+
+    // Cache the rendered page in blob storage (best-effort).
+    if let Some(blob) = data.image_blob.as_ref() {
+        let _ = blob
+            .put_bytes(
+                &cache_key,
+                html.as_bytes().to_vec(),
+                "text/html; charset=utf-8",
+            )
+            .await;
+    }
+
+    Ok(html_response(html))
+}
+
+// ---------------------------------------------------------------------------
+// Vision — image alt-text generation
+// ---------------------------------------------------------------------------
+
+#[post("/images/{name}/describe")]
+async fn admin_describe_image(
+    request: HttpRequest,
+    path: web::Path<String>,
+    data: web::Data<AppState>,
+) -> Result<HttpResponse> {
+    authenticate_admin(&request, &data, "admin_describe_image")
+        .await
+        .map_err(admin_auth_error)?;
+
+    let name = path.into_inner();
+    let vision = data.vision.as_ref().ok_or_else(|| {
+        actix_web::error::ErrorServiceUnavailable("Vision adapter not configured")
+    })?;
+
+    let image_url = format!("{}/images/{}", data.config.base_url, name);
+    let alt = vision
+        .describe_image_url(&image_url)
+        .await
+        .map_err(|e| actix_web::error::ErrorInternalServerError(e.to_string()))?;
+
+    Ok(HttpResponse::Ok().json(serde_json::json!({"alt": alt})))
+}
+
 fn map_post(post: Post) -> rustacian_blog_frontend::PostView {
     let slug = post.slug.clone();
     rustacian_blog_frontend::PostView {
@@ -1310,6 +1434,8 @@ mod tests {
             analytics: None,
             cloudflare: None,
             http_client: reqwest::Client::new(),
+            vision: None,
+            translator: None,
             generate_ai_metadata: None,
             publish_static_site: Some(PublishStaticSiteUseCase::new(
                 Arc::new(MockStaticSiteGenerator),
@@ -1337,6 +1463,14 @@ mod tests {
                 entra_redirect_uri: None,
                 cloudflare_zone_id: None,
                 cloudflare_api_token: None,
+                azure_vision_endpoint: None,
+                azure_vision_api_key: None,
+                azure_translator_endpoint: None,
+                azure_translator_api_key: None,
+                acs_endpoint: None,
+                acs_access_key: None,
+                acs_sender_address: None,
+                acs_recipient_address: None,
                 static_output_dir: "./dist".into(),
                 static_publish_backend: "local".to_owned(),
                 static_publish_prefix: "site".to_owned(),
