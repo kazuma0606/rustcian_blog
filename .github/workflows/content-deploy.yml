@@ -43,7 +43,7 @@ jobs:
           done
           echo "$INDEX" > content/posts/index.json
           echo "Generated index with $(echo "$INDEX" | jq length) posts:"
-          echo "$INDEX" | jq '.[].slug + " (" + .status + ")"'
+          echo "$INDEX" | jq -r '.[] | .slug + " (" + .status + ")"'
 
       - name: Log in to Azure (OIDC)
         uses: azure/login@v2
