@@ -90,8 +90,8 @@
 - [x] `terraform/outputs.tf` に `dev_container_app_hostname`, `dev_storage_account_name` を追加
 - [x] `.github/workflows/deploy-dev.yml` を作成（`v*_dev` / `develop` ブランチで自動起動、build + push + deploy）
 - [ ] GitHub Secrets に `DEV_CONTAINER_APP_NAME`, `DEV_RESOURCE_GROUP` を設定（手動）
-- [ ] `terraform plan` で差分を確認してから `terraform apply`（手動）
-- [ ] 初回デプロイ後に `container_image_dev`, `base_url_dev` を tfvars に記入
+- [x] `terraform apply` 完了（Container App + ロール割り当てすべて）
+- [x] 初回デプロイ後に `container_image_dev`, `base_url_dev` を tfvars に記入（base_url_dev: bluepebble FQDN）
 
 ### 確認 🟢
-- [ ] dev Container App の FQDN にアクセスして動作確認
+- [x] dev Container App の FQDN にアクセスして動作確認（HTTP 200）

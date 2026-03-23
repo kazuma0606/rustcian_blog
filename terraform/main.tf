@@ -270,6 +270,13 @@ resource "azurerm_role_assignment" "dev_app_storage_blobs" {
   principal_id         = module.app_dev.principal_id
 }
 
+# Grant the dev Container App's managed identity pull access to the shared ACR.
+resource "azurerm_role_assignment" "dev_app_acr_pull" {
+  scope                = module.registry.id
+  role_definition_name = "AcrPull"
+  principal_id         = module.app_dev.principal_id
+}
+
 # Allow GitHub Actions SP to upload dev content blobs.
 resource "azurerm_role_assignment" "dev_github_storage_blobs" {
   scope                = module.storage_dev.id
