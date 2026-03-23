@@ -128,7 +128,12 @@ pub struct PostView {
     pub status: String,
 }
 
-pub fn render_posts_page(posts: Vec<PostSummaryView>, page: usize, total_pages: usize) -> String {
+pub fn render_posts_page(
+    posts: Vec<PostSummaryView>,
+    page: usize,
+    total_pages: usize,
+    base_url: &str,
+) -> String {
     render_posts_shell(
         "Rustacian Tech Blog",
         "Rustacian Tech Blog",
@@ -138,6 +143,7 @@ pub fn render_posts_page(posts: Vec<PostSummaryView>, page: usize, total_pages: 
         page,
         total_pages,
         "/",
+        base_url,
     )
 }
 
@@ -146,6 +152,7 @@ pub fn render_tag_posts_page(
     posts: Vec<PostSummaryView>,
     page: usize,
     total_pages: usize,
+    base_url: &str,
 ) -> String {
     render_posts_shell(
         &format!("Posts tagged {tag}"),
@@ -156,18 +163,33 @@ pub fn render_tag_posts_page(
         page,
         total_pages,
         &format!("/tags/{tag}/"),
+        base_url,
     )
 }
 
-pub fn render_tags_page(tags: Vec<TagLinkView>) -> String {
+pub fn render_tags_page(tags: Vec<TagLinkView>, base_url: &str) -> String {
+    let ogp = if !base_url.is_empty() {
+        let image = format!("{base_url}/images/OGP.svg");
+        let canonical = format!("{base_url}/tags/");
+        build_ogp_meta(
+            "website",
+            "Tags — Rustacian Tech Blog",
+            "Rust で作り、Rust について書く技術ブログ。",
+            &image,
+            &canonical,
+        )
+    } else {
+        String::new()
+    };
     let body = view! { <TagsPage tags=tags/> }.to_html();
-    wrap_document("Tags", &body, false, false)
+    wrap_document_inner("Tags", &body, false, false, "ja", &ogp)
 }
 
 /// Render a Japanese post page.
 /// Pass `en_url` (e.g. `"/en/posts/my-slug"`) to inject `<link rel="alternate" hreflang>` tags.
-pub fn render_post_page(post: PostView, en_url: Option<&str>) -> String {
-    let extra_head = if let Some(en) = en_url {
+/// Pass `base_url` (e.g. `"https://rustacian-blog.com"`) for OGP absolute URLs; empty string skips OGP.
+pub fn render_post_page(post: PostView, en_url: Option<&str>, base_url: &str) -> String {
+    let hreflang = if let Some(en) = en_url {
         let slug = esc(&post.slug);
         format!(
             r#"<link rel="alternate" hreflang="ja" href="/posts/{slug}">
@@ -176,6 +198,28 @@ pub fn render_post_page(post: PostView, en_url: Option<&str>) -> String {
     } else {
         String::new()
     };
+    let ogp = if !base_url.is_empty() {
+        let desc = post
+            .description
+            .as_deref()
+            .or(if post.summary.is_empty() {
+                None
+            } else {
+                Some(post.summary.as_str())
+            })
+            .unwrap_or(&post.title);
+        let desc = if desc.len() > 160 { &desc[..160] } else { desc };
+        let image = if let Some(ref hero) = post.hero_image {
+            format!("{base_url}/images/{hero}")
+        } else {
+            format!("{base_url}/images/OGP.svg")
+        };
+        let canonical = format!("{base_url}/posts/{}/", esc(&post.slug));
+        build_ogp_meta("article", &post.title, desc, &image, &canonical)
+    } else {
+        String::new()
+    };
+    let extra_head = format!("{hreflang}\n    {ogp}");
     let title = post.title.clone();
     let enable_math = post.math;
     let enable_mermaid = post.body_html.contains("class=\"mermaid\"");
@@ -195,7 +239,11 @@ pub fn render_en_post_page(post: PostView, ja_url: &str) -> String {
     let slug = esc(&post.slug);
     let extra_head = format!(
         r#"<link rel="alternate" hreflang="ja" href="{ja_url}">
-    <link rel="alternate" hreflang="en" href="/en/posts/{slug}">"#
+    <link rel="alternate" hreflang="en" href="/en/posts/{slug}">
+    <meta property="og:type" content="article">
+    <meta property="og:title" content="{title}">
+    <meta name="twitter:card" content="summary_large_image">"#,
+        title = esc(&post.title),
     );
     let title = post.title.clone();
     let enable_math = post.math;
@@ -927,7 +975,21 @@ fn render_posts_shell(
     page: usize,
     total_pages: usize,
     base_path: &str,
+    base_url: &str,
 ) -> String {
+    let ogp = if !base_url.is_empty() {
+        let image = format!("{base_url}/images/OGP.svg");
+        let canonical = format!("{base_url}{base_path}");
+        build_ogp_meta(
+            "website",
+            title,
+            "Rust で作り、Rust について書く技術ブログ。Actix Web × Leptos × Azure で動く本番ブログでもあります。",
+            &image,
+            &canonical,
+        )
+    } else {
+        String::new()
+    };
     let body = view! {
         <PostsPage
             posts=posts
@@ -940,11 +1002,35 @@ fn render_posts_shell(
         />
     }
     .to_html();
-    wrap_document(title, &body, false, false)
+    wrap_document_inner(title, &body, false, false, "ja", &ogp)
 }
 
 fn wrap_document(title: &str, body: &str, enable_math: bool, enable_mermaid: bool) -> String {
     wrap_document_inner(title, body, enable_math, enable_mermaid, "ja", "")
+}
+
+fn build_ogp_meta(
+    og_type: &str,
+    title: &str,
+    description: &str,
+    image_url: &str,
+    canonical_url: &str,
+) -> String {
+    format!(
+        r#"<meta property="og:type" content="{og_type}">
+    <meta property="og:title" content="{title}">
+    <meta property="og:description" content="{description}">
+    <meta property="og:image" content="{image_url}">
+    <meta property="og:url" content="{canonical_url}">
+    <meta property="og:site_name" content="Rustacian Tech Blog">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="description" content="{description}">"#,
+        og_type = esc(og_type),
+        title = esc(title),
+        description = esc(description),
+        image_url = esc(image_url),
+        canonical_url = esc(canonical_url),
+    )
 }
 
 fn wrap_document_inner(
@@ -1844,7 +1930,7 @@ mod tests {
 
     #[test]
     fn rendered_post_page_includes_math_assets_and_markers() {
-        let html = render_post_page(sample_post_view(), None);
+        let html = render_post_page(sample_post_view(), None, "");
 
         assert!(html.contains("katex.min.css"));
         assert!(html.contains("mermaid.esm.min.mjs"));
@@ -1857,11 +1943,14 @@ mod tests {
 
     #[test]
     fn rendered_tag_pages_include_expected_links() {
-        let tag_html = render_tags_page(vec![TagLinkView {
-            tag: "rust".to_owned(),
-            href: "/tags/rust/".to_owned(),
-            count: 2,
-        }]);
+        let tag_html = render_tags_page(
+            vec![TagLinkView {
+                tag: "rust".to_owned(),
+                href: "/tags/rust/".to_owned(),
+                count: 2,
+            }],
+            "",
+        );
         let posts_html = render_tag_posts_page(
             "rust",
             vec![PostSummaryView {
@@ -1881,6 +1970,7 @@ mod tests {
             }],
             1,
             1,
+            "",
         );
 
         assert!(tag_html.contains("/tags/rust/"));

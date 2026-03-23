@@ -161,7 +161,7 @@ impl StaticSiteGenerator for LocalStaticSiteGenerator {
             .await?;
         let mut pages = vec![StaticPage {
             path: "index.html".to_owned(),
-            content: render_posts_page(map_summaries(summaries.clone()), 1, 1),
+            content: render_posts_page(map_summaries(summaries.clone()), 1, 1, &self.base_url),
         }];
         let mut assets = self.asset_store.list_global_assets().await?;
         let mut tag_map: BTreeMap<String, Vec<rustacian_blog_core::PostSummary>> = BTreeMap::new();
@@ -190,7 +190,11 @@ impl StaticSiteGenerator for LocalStaticSiteGenerator {
                 .then(|| format!("/en/posts/{}/", post.slug));
             pages.push(StaticPage {
                 path: format!("posts/{}/index.html", post.slug),
-                content: render_post_page(map_post(post.clone()), en_url.as_deref()),
+                content: render_post_page(
+                    map_post(post.clone()),
+                    en_url.as_deref(),
+                    &self.base_url,
+                ),
             });
             assets.extend(self.asset_store.list_post_assets(&post.slug).await?);
             search_entries.push(SearchEntry::from_post(&post));
@@ -254,14 +258,14 @@ impl StaticSiteGenerator for LocalStaticSiteGenerator {
             .collect::<Vec<_>>();
         pages.push(StaticPage {
             path: "tags/index.html".to_owned(),
-            content: render_tags_page(tag_links),
+            content: render_tags_page(tag_links, &self.base_url),
         });
         sitemap_urls.push(absolute_url(&self.base_url, "/tags/"));
 
         for (tag, posts) in tag_map {
             pages.push(StaticPage {
                 path: format!("tags/{tag}/index.html"),
-                content: render_tag_posts_page(&tag, map_summaries(posts), 1, 1),
+                content: render_tag_posts_page(&tag, map_summaries(posts), 1, 1, &self.base_url),
             });
             sitemap_urls.push(absolute_url(&self.base_url, &format!("/tags/{tag}/")));
         }

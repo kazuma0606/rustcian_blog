@@ -68,10 +68,13 @@
 
 ## マイルストーン 4: OGP / SEO 強化（v6-E）
 
-- [ ] `wrap_document_inner` に OGP パラメータを追加
-- [ ] 記事ページに `og:title`, `og:description`, `og:image`, `og:url`, `og:type` を追加
-- [ ] トップページに `og:type=website`, デフォルト OGP 画像を追加
-- [ ] `twitter:card` メタタグを追加
+- [x] `build_ogp_meta` ヘルパーを追加（`og:type`, `og:title`, `og:description`, `og:image`, `og:url`, `og:site_name`, `twitter:card`, `name=description`）
+- [x] `render_post_page` に `base_url: &str` を追加し記事ページに OGP タグを注入
+- [x] `render_posts_page` / `render_tag_posts_page` / `render_tags_page` にも同様に追加
+- [x] トップページに `og:type=website`, デフォルト OGP 画像（`/images/OGP.svg`）を追加
+- [x] `twitter:card=summary_large_image` を追加
+- [x] `fmt`, `clippy`, `test`（129 件）通過
+- [ ] OGP.svg → PNG 変換（SNS クローラー対応）
 
 ### 確認 🟢
 - [ ] ページソースで OGP タグを確認

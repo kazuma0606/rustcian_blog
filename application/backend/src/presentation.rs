@@ -143,6 +143,7 @@ async fn index_page(
         map_summaries(posts),
         page,
         total_pages,
+        &data.config.base_url,
     )))
 }
 
@@ -171,6 +172,7 @@ async fn post_page(
     Ok(html_response(render_post_page(
         map_post(post),
         en_url.as_deref(),
+        &data.config.base_url,
     )))
 }
 
@@ -261,7 +263,7 @@ async fn admin_preview_placeholder(
         .await
         .map_err(api_app_error)?;
 
-    Ok(html_response(render_post_page(map_post(post), None)))
+    Ok(html_response(render_post_page(map_post(post), None, "")))
 }
 
 #[get("/posts/{slug}")]
