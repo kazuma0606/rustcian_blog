@@ -246,7 +246,9 @@ impl AzuriteBlobAdapter {
             .await?;
 
         match response.status() {
-            StatusCode::CREATED | StatusCode::CONFLICT => Ok(()),
+            // CREATED = new container, CONFLICT = already exists, FORBIDDEN = pre-created by
+            // infrastructure (Terraform) with permissions that block re-creation — treat as ok.
+            StatusCode::CREATED | StatusCode::CONFLICT | StatusCode::FORBIDDEN => Ok(()),
             status => Err(BlogError::Storage(format!(
                 "failed to create blob container: {status}"
             ))),
@@ -282,7 +284,10 @@ impl AzuriteBlobAdapter {
         }
 
         let body_bytes = body.unwrap_or_default();
-        let content_length = if body_bytes.is_empty() {
+        // Azure Blob requires Content-Length on all PUT requests (even empty body = "0").
+        let content_length = if body_bytes.is_empty() && method == Method::PUT {
+            "0".to_owned()
+        } else if body_bytes.is_empty() {
             String::new()
         } else {
             body_bytes.len().to_string()
@@ -327,7 +332,14 @@ impl AzuriteBlobAdapter {
             .unwrap_or("")
             .to_owned();
         let authorization = self
-            .build_auth_header(&method, path, &headers, extra_query.as_ref(), &content_length, &ct)
+            .build_auth_header(
+                &method,
+                path,
+                &headers,
+                extra_query.as_ref(),
+                &content_length,
+                &ct,
+            )
             .await?;
         headers.insert(
             HeaderName::from_static("authorization"),
