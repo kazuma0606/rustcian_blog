@@ -2532,4 +2532,55 @@ mod tests {
         .await;
         assert_eq!(response.status(), StatusCode::OK);
     }
+
+    // --- M3: blob index fallback integration tests ---
+
+    #[actix_web::test]
+    async fn index_page_returns_ok_when_no_blob_index_configured() {
+        // azurite_blob_endpoint is None in default app_state; the backend should
+        // fall back to in-memory index construction and still serve GET /.
+        let state = app_state(Arc::new(MockRepository {
+            list_result: Ok(vec![sample_post().summary()]),
+            get_result: Ok(sample_post()),
+        }));
+        assert!(state.config.azurite_blob_endpoint.is_none());
+
+        let app =
+            test::init_service(App::new().app_data(web::Data::new(state)).configure(routes)).await;
+
+        let response =
+            test::call_service(&app, test::TestRequest::get().uri("/").to_request()).await;
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[actix_web::test]
+    async fn search_works_after_in_memory_index_fallback() {
+        // When no blob endpoint is configured the search index is built in-memory
+        // from the repository; a subsequent search query must still return results.
+        let state = {
+            let mut s = app_state(Arc::new(MockRepository {
+                list_result: Ok(vec![sample_post().summary()]),
+                get_result: Ok(sample_post()),
+            }));
+            // Seed the in-memory index exactly as main.rs does at startup.
+            let doc = rustacian_blog_search::PostDoc {
+                slug: "sample".to_owned(),
+                title: "Sample".to_owned(),
+                body_text: "Hello".to_owned(),
+                tags: vec!["rust".to_owned()],
+                date: "2026-03-19".to_owned(),
+            };
+            s.search_index.rebuild(&[doc]).unwrap();
+            s
+        };
+
+        let app =
+            test::init_service(App::new().app_data(web::Data::new(state)).configure(routes)).await;
+
+        let response =
+            test::call_service(&app, test::TestRequest::get().uri("/?q=rust").to_request()).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = String::from_utf8(actix_web::test::read_body(response).await.to_vec()).unwrap();
+        assert!(body.contains("rust"), "expected search results in body");
+    }
 }

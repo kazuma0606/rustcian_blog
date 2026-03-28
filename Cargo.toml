@@ -5,6 +5,7 @@ members = [
     "application/search",
     "application/backend",
     "application/frontend",
+    "application/search-indexer",
 ]
 resolver = "2"
 
