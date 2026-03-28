@@ -20,9 +20,9 @@
 - [x] `git checkout -b v6.5_dev`
 
 ### 各マイルストーン共通の push 手順
-- [ ] `git push origin v6.5_dev` → Deploy Dev 完了を確認
-- [ ] DEV 環境で対象ページを目視確認（下記「DEV 確認」参照）
-- [ ] master マージ → prod で最終確認（下記「prod 確認」参照）
+- [x] `git push origin v6.5_dev` → Deploy Dev 完了を確認
+- [x] DEV 環境で対象ページを目視確認（下記「DEV 確認」参照）
+- [x] master マージ → prod で最終確認（下記「prod 確認」参照）
 
 ---
 
@@ -67,9 +67,9 @@
 - [x] DEV でコメント投稿 → 管理画面で承認 → 記事ページに反映される
 
 ### prod 確認 🔲（master マージ後）
-- [ ] master マージ → CI + Deploy 成功
-- [ ] prod の記事ページ（`/p/{slug}`）にコメントセクションが表示される
-- [ ] prod でコメント投稿フォームが表示される
+- [x] master マージ → CI + Deploy 成功
+- [x] prod の記事ページ（`/p/{slug}`）にコメントセクションが表示される
+- [x] prod でコメント投稿フォームが表示される
 
 ---
 
@@ -119,8 +119,8 @@
 - [x] `git push origin v6.5_dev` → Deploy Dev 成功
 - [x] DEV の `/search?q=rust` が正常に動作する（クレート分離後もリグレッションなし）
 
-### prod 確認 🔲（M2 完了・master マージ後にまとめて実施）
-- M2 の prod 確認と合わせて行う
+### prod 確認（M2 完了・master マージ後にまとめて実施）
+- [x] M2 の prod 確認と合わせて行う
 
 ---
 
@@ -182,11 +182,11 @@
 - [x] DEV で検索後にフォームの入力値が維持されている
 - [x] DEV で 0 件検索時のメッセージが表示される
 
-### prod 確認 🔲（master マージ後）
-- [ ] master マージ → CI + Deploy 成功
-- [ ] prod の `index.html` に検索フォームが表示される
-- [ ] prod でキーワード検索 → 検索結果カードが表示される
-- [ ] prod で `/search?q=rust` も引き続き動作する（既存エンドポイント維持）
+### prod 確認（master マージ後）
+- [x] master マージ → CI + Deploy 成功
+- [x] prod の `index.html` に検索フォームが表示される
+- [x] prod でキーワード検索 → 検索結果カードが表示される
+- [x] prod で `/search?q=rust` も引き続き動作する（既存エンドポイント維持）
 
 ---
 
@@ -230,11 +230,11 @@
 - [ ] DEV のバックエンドを再起動後も検索が動作する（Blob からロード確認）
 - [ ] DEV で cron が動作することを次の定期実行タイミングで確認
 
-### prod 確認 🔲（master マージ後）
-- [ ] master マージ → CI + Deploy 成功
-- [ ] `search-index.yml` を手動実行して prod Blob にインデックスが保存される
-- [ ] prod で検索が動作する
-- [ ] prod で次回 cron 実行後も検索が維持される
+### prod 確認（master マージ後）
+- [x] master マージ → CI + Deploy 成功
+- [x] `search-index.yml` を手動実行して prod Blob にインデックスが保存される
+- [x] prod で検索が動作する
+- [ ] prod で次回 cron 実行後も検索が維持される（次の毎時 cron で自動確認）
 
 ---
 
