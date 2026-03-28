@@ -45,7 +45,7 @@ RUN touch \
       application/analytics/src/main.rs \
       application/search/src/lib.rs \
       application/search-indexer/src/main.rs && \
-    cargo build --release --locked --bin rustacian_blog_backend
+    cargo build --release --bin rustacian_blog_backend
 
 # ---------------------------------------------------------------------------
 # Stage 3: runtime
