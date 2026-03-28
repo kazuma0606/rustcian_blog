@@ -38,5 +38,10 @@ jobs:
 
       - name: Run search-indexer
         env:
-          AZURITE_BLOB_ENDPOINT: ${{ secrets.BLOB_ENDPOINT }}
-        run: ./target/release/search-indexer
+          AZURITE_BLOB_ENDPOINT: https://${{ secrets.STORAGE_ACCOUNT_NAME }}.blob.core.windows.net
+          AZURE_STORAGE_ACCOUNT_NAME: ${{ secrets.STORAGE_ACCOUNT_NAME }}
+        run: |
+          export AZURE_STORAGE_ACCOUNT_KEY=$(az storage account keys list \
+            --account-name "${{ secrets.STORAGE_ACCOUNT_NAME }}" \
+            --query "[0].value" -o tsv)
+          ./target/release/search-indexer
