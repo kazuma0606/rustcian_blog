@@ -165,12 +165,26 @@ async fn post_page(
         analytics.record_session_step(slug.clone(), ip);
     }
 
+    let comments = data
+        .comment_repo
+        .list_comments(&slug, false)
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .map(|c| CommentView {
+            id: c.id,
+            author_name: c.author_name,
+            content: c.content,
+            created_at: c.created_at.format("%Y-%m-%d %H:%M").to_string(),
+        })
+        .collect();
     let en_url = data
         .translator
         .is_some()
         .then(|| format!("/en/posts/{}", &slug));
     Ok(html_response(render_post_page(
         map_post(post),
+        comments,
         en_url.as_deref(),
         &data.config.base_url,
     )))
@@ -263,7 +277,12 @@ async fn admin_preview_placeholder(
         .await
         .map_err(api_app_error)?;
 
-    Ok(html_response(render_post_page(map_post(post), None, "")))
+    Ok(html_response(render_post_page(
+        map_post(post),
+        Vec::new(),
+        None,
+        "",
+    )))
 }
 
 #[get("/posts/{slug}")]
@@ -473,7 +492,7 @@ async fn post_comment(
         })
         .await;
     Ok(HttpResponse::SeeOther()
-        .insert_header(("Location", format!("/posts/{slug}/comments")))
+        .insert_header(("Location", format!("/p/{slug}#comments")))
         .finish())
 }
 
@@ -2030,7 +2049,7 @@ mod tests {
                 .headers()
                 .get("location")
                 .and_then(|v| v.to_str().ok()),
-            Some("/posts/sample/comments")
+            Some("/p/sample#comments")
         );
     }
 
@@ -2278,5 +2297,69 @@ mod tests {
         .await;
 
         assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[actix_web::test]
+    async fn post_page_includes_comment_section() {
+        let state = app_state(Arc::new(MockRepository {
+            list_result: Ok(Vec::new()),
+            get_result: Ok(sample_post()),
+        }));
+        let app =
+            test::init_service(App::new().app_data(web::Data::new(state)).configure(routes)).await;
+
+        let response =
+            test::call_service(&app, test::TestRequest::get().uri("/p/sample").to_request()).await;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = test::read_body(response).await;
+        let html = String::from_utf8(body.to_vec()).unwrap();
+        assert!(html.contains("id=\"comments\""));
+        assert!(html.contains("コメントを投稿"));
+    }
+
+    #[actix_web::test]
+    async fn post_page_shows_no_comments_message() {
+        let state = app_state(Arc::new(MockRepository {
+            list_result: Ok(Vec::new()),
+            get_result: Ok(sample_post()),
+        }));
+        let app =
+            test::init_service(App::new().app_data(web::Data::new(state)).configure(routes)).await;
+
+        let response =
+            test::call_service(&app, test::TestRequest::get().uri("/p/sample").to_request()).await;
+
+        let body = test::read_body(response).await;
+        let html = String::from_utf8(body.to_vec()).unwrap();
+        assert!(html.contains("まだコメントはありません"));
+    }
+
+    #[actix_web::test]
+    async fn post_comment_redirects_to_post_page_with_anchor() {
+        let state = app_state(Arc::new(MockRepository {
+            list_result: Ok(Vec::new()),
+            get_result: Ok(sample_post()),
+        }));
+        let app =
+            test::init_service(App::new().app_data(web::Data::new(state)).configure(routes)).await;
+
+        let response = test::call_service(
+            &app,
+            test::TestRequest::post()
+                .uri("/posts/sample/comments")
+                .set_form([("author_name", "Alice"), ("content", "Nice article!")])
+                .to_request(),
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::SEE_OTHER);
+        assert_eq!(
+            response
+                .headers()
+                .get("location")
+                .and_then(|v| v.to_str().ok()),
+            Some("/p/sample#comments")
+        );
     }
 }

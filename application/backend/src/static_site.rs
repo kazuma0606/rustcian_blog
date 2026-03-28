@@ -192,6 +192,7 @@ impl StaticSiteGenerator for LocalStaticSiteGenerator {
                 path: format!("posts/{}/index.html", post.slug),
                 content: render_post_page(
                     map_post(post.clone()),
+                    Vec::new(),
                     en_url.as_deref(),
                     &self.base_url,
                 ),

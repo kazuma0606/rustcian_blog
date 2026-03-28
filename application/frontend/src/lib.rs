@@ -188,7 +188,12 @@ pub fn render_tags_page(tags: Vec<TagLinkView>, base_url: &str) -> String {
 /// Render a Japanese post page.
 /// Pass `en_url` (e.g. `"/en/posts/my-slug"`) to inject `<link rel="alternate" hreflang>` tags.
 /// Pass `base_url` (e.g. `"https://rustacian-blog.com"`) for OGP absolute URLs; empty string skips OGP.
-pub fn render_post_page(post: PostView, en_url: Option<&str>, base_url: &str) -> String {
+pub fn render_post_page(
+    post: PostView,
+    comments: Vec<CommentView>,
+    en_url: Option<&str>,
+    base_url: &str,
+) -> String {
     let hreflang = if let Some(en) = en_url {
         let slug = esc(&post.slug);
         format!(
@@ -223,7 +228,7 @@ pub fn render_post_page(post: PostView, en_url: Option<&str>, base_url: &str) ->
     let title = post.title.clone();
     let enable_math = post.math;
     let enable_mermaid = post.body_html.contains("class=\"mermaid\"");
-    let body = view! { <PostPage post=post/> }.to_html();
+    let body = view! { <PostPage post=post comments=comments/> }.to_html();
     wrap_document_inner(
         &title,
         &body,
@@ -248,7 +253,7 @@ pub fn render_en_post_page(post: PostView, ja_url: &str) -> String {
     let title = post.title.clone();
     let enable_math = post.math;
     let enable_mermaid = post.body_html.contains("class=\"mermaid\"");
-    let body = view! { <PostPage post=post/> }.to_html();
+    let body = view! { <PostPage post=post comments=Vec::new()/> }.to_html();
     wrap_document_inner(
         &title,
         &body,
@@ -1708,7 +1713,7 @@ fn TagsPage(tags: Vec<TagLinkView>) -> impl IntoView {
 }
 
 #[component]
-fn PostPage(post: PostView) -> impl IntoView {
+fn PostPage(post: PostView, comments: Vec<CommentView>) -> impl IntoView {
     let hero_view = post
         .hero_image
         .clone()
@@ -1851,6 +1856,29 @@ fn PostPage(post: PostView) -> impl IntoView {
         ().into_any()
     };
 
+    let slug = post.slug.clone();
+    let comment_items = comments
+        .iter()
+        .map(|c| {
+            view! {
+                <div style="padding:16px 0;border-bottom:1px solid var(--line);">
+                    <div style="font-size:13px;color:var(--muted);margin-bottom:4px;">
+                        {c.author_name.clone()} " · " {c.created_at.clone()}
+                    </div>
+                    <div style="line-height:1.7;">{c.content.clone()}</div>
+                </div>
+            }
+        })
+        .collect_view();
+    let comment_list_view = if comments.is_empty() {
+        view! {
+            <p style="color:var(--muted);font-size:14px;">"まだコメントはありません。"</p>
+        }
+        .into_any()
+    } else {
+        view! { <div>{comment_items}</div> }.into_any()
+    };
+
     view! {
         <main class="shell">
             <section class="hero">
@@ -1872,6 +1900,37 @@ fn PostPage(post: PostView) -> impl IntoView {
                 <div class="post-body" inner_html=post.body_html.clone()></div>
                 <a class="nav" href="/">"Back to posts"</a>
             </article>
+            <section id="comments" class="post" style="margin-top:24px;">
+                <p class="eyebrow" style="text-transform:uppercase;letter-spacing:0.12em;color:var(--accent);font-size:12px;">"Comments"</p>
+                <h2 style="margin-top:4px;margin-bottom:20px;">"コメント"</h2>
+                {comment_list_view}
+                <h3 style="margin-top:32px;margin-bottom:12px;">"コメントを投稿"</h3>
+                <form
+                    method="post"
+                    action=format!("/posts/{slug}/comments")
+                    style="display:flex;flex-direction:column;gap:12px;"
+                >
+                    <input
+                        name="author_name"
+                        placeholder="名前"
+                        required
+                        style="padding:10px 14px;border:1px solid var(--line);border-radius:10px;background:var(--bg);font-family:inherit;font-size:15px;color:var(--text);"
+                    />
+                    <textarea
+                        name="content"
+                        placeholder="コメント本文"
+                        rows="4"
+                        required
+                        style="padding:10px 14px;border:1px solid var(--line);border-radius:10px;background:var(--bg);font-family:inherit;font-size:15px;color:var(--text);resize:vertical;"
+                    ></textarea>
+                    <button
+                        type="submit"
+                        style="align-self:flex-start;padding:10px 24px;background:var(--accent);color:#fff;border:none;border-radius:10px;cursor:pointer;font-family:inherit;font-size:15px;"
+                    >
+                        "投稿"
+                    </button>
+                </form>
+            </section>
         </main>
     }
 }
@@ -1879,9 +1938,18 @@ fn PostPage(post: PostView) -> impl IntoView {
 #[cfg(test)]
 mod tests {
     use super::{
-        ChartPointView, PostSummaryView, PostView, RenderedChartView, TagLinkView,
+        ChartPointView, CommentView, PostSummaryView, PostView, RenderedChartView, TagLinkView,
         render_post_page, render_tag_posts_page, render_tags_page,
     };
+
+    fn sample_comment(author: &str, content: &str) -> CommentView {
+        CommentView {
+            id: "test-id".to_owned(),
+            author_name: author.to_owned(),
+            content: content.to_owned(),
+            created_at: "2026-03-28 10:00".to_owned(),
+        }
+    }
 
     fn sample_post_view() -> PostView {
         PostView {
@@ -1930,7 +1998,7 @@ mod tests {
 
     #[test]
     fn rendered_post_page_includes_math_assets_and_markers() {
-        let html = render_post_page(sample_post_view(), None, "");
+        let html = render_post_page(sample_post_view(), Vec::new(), None, "");
 
         assert!(html.contains("katex.min.css"));
         assert!(html.contains("mermaid.esm.min.mjs"));
@@ -1939,6 +2007,42 @@ mod tests {
         assert!(html.contains("pre.mermaid"));
         assert!(html.contains("renderMathInElement"));
         assert!(html.contains("<table class=\"chart-table\">"));
+    }
+
+    #[test]
+    fn post_page_includes_comment_section() {
+        let html = render_post_page(sample_post_view(), Vec::new(), None, "");
+        assert!(html.contains("id=\"comments\""));
+        assert!(html.contains("コメントを投稿"));
+        assert!(html.contains("action=\"/posts/sample/comments\""));
+    }
+
+    #[test]
+    fn post_page_shows_no_comments_message_when_empty() {
+        let html = render_post_page(sample_post_view(), Vec::new(), None, "");
+        assert!(html.contains("まだコメントはありません"));
+    }
+
+    #[test]
+    fn post_page_renders_approved_comments() {
+        let comments = vec![
+            sample_comment("Alice", "Great post!"),
+            sample_comment("Bob", "Very helpful."),
+        ];
+        let html = render_post_page(sample_post_view(), comments, None, "");
+        assert!(html.contains("Alice"));
+        assert!(html.contains("Great post!"));
+        assert!(html.contains("Bob"));
+        assert!(html.contains("Very helpful."));
+        assert!(!html.contains("まだコメントはありません"));
+    }
+
+    #[test]
+    fn post_page_comment_form_has_required_fields() {
+        let html = render_post_page(sample_post_view(), Vec::new(), None, "");
+        assert!(html.contains("name=\"author_name\""));
+        assert!(html.contains("name=\"content\""));
+        assert!(html.contains("type=\"submit\""));
     }
 
     #[test]
