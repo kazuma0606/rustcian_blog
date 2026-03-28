@@ -225,7 +225,7 @@
 - [ ] ローカルでバックエンド再起動後もインデックスが復元され検索できる
 
 ### DEV 確認 🔲
-- [ ] `git push origin v6.5_dev` → Deploy Dev 成功
+- [x] `git push origin v6.5_dev` → Deploy Dev 成功
 - [ ] GitHub Actions の `search-index.yml` を手動実行（`workflow_dispatch`）してインデックスが Blob に保存される
 - [ ] DEV のバックエンドを再起動後も検索が動作する（Blob からロード確認）
 - [ ] DEV で cron が動作することを次の定期実行タイミングで確認
