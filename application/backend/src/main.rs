@@ -16,7 +16,6 @@ use rustacian_blog_backend::{
     notification::build_notification_sink,
     observability::{AppEvent, build_observability_sink},
     presentation,
-    search::TantivySearchIndex,
     state::AppState,
     static_site::{LocalFileAssetStore, LocalStaticSiteGenerator, build_static_site_publisher},
     storage::{AzuritePostRepository, LocalContentPostRepository, seed_azurite_from_local},
@@ -26,6 +25,7 @@ use rustacian_blog_core::{
     GenerateAiMetadataUseCase, GetPostUseCase, ListPostsUseCase, PostRepository, PostVisibility,
     PublishStaticSiteUseCase,
 };
+use rustacian_blog_search::{PostDoc, SearchEngine};
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
@@ -64,22 +64,31 @@ async fn main() -> std::io::Result<()> {
     }
 
     // Build initial search index from all published posts.
-    let search_index = Arc::new(TantivySearchIndex::new());
+    let search_index = Arc::new(SearchEngine::new());
     {
         let slugs = repository
             .list_posts(PostVisibility::PublishedOnly)
             .await
             .unwrap_or_default();
-        let mut posts = Vec::with_capacity(slugs.len());
+        let mut docs = Vec::with_capacity(slugs.len());
         for s in &slugs {
             if let Ok(post) = repository
                 .get_post(&s.slug, PostVisibility::PublishedOnly)
                 .await
             {
-                posts.push(post);
+                docs.push(PostDoc {
+                    slug: post.slug.clone(),
+                    title: post.title.clone(),
+                    body_text: ammonia::Builder::new()
+                        .tags(std::collections::HashSet::new())
+                        .clean(&post.body_html)
+                        .to_string(),
+                    tags: post.tags.clone(),
+                    date: post.published_at.format("%Y-%m-%d").to_string(),
+                });
             }
         }
-        if let Err(e) = search_index.rebuild(&posts) {
+        if let Err(e) = search_index.rebuild(&docs) {
             eprintln!("warn: search index build failed: {e}");
         }
     }

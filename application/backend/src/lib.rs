@@ -9,7 +9,7 @@ pub mod config;
 pub mod notification;
 pub mod observability;
 pub mod presentation;
-pub mod search;
+pub mod search_storage;
 pub mod state;
 pub mod static_site;
 pub mod storage;

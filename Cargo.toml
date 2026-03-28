@@ -2,6 +2,7 @@
 members = [
     "application/analytics",
     "application/core",
+    "application/search",
     "application/backend",
     "application/frontend",
 ]

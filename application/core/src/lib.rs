@@ -20,7 +20,6 @@ pub use domain::post::{
     RenderedChart, TocItem,
 };
 pub use domain::repository::PostRepository;
-pub use domain::search::{SearchQuery, SearchResult};
 pub use domain::static_site::{
     AssetStore, StaticAsset, StaticPage, StaticSiteBuild, StaticSiteGenerator, StaticSitePublisher,
 };

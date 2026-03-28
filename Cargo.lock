@@ -3170,11 +3170,11 @@ dependencies = [
  "reqwest",
  "rustacian_blog_core",
  "rustacian_blog_frontend",
+ "rustacian_blog_search",
  "serde",
  "serde_json",
  "serde_yaml",
  "sha2",
- "tantivy",
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
@@ -3200,6 +3200,15 @@ version = "0.1.0"
 dependencies = [
  "leptos",
  "serde",
+]
+
+[[package]]
+name = "rustacian_blog_search"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tantivy",
 ]
 
 [[package]]

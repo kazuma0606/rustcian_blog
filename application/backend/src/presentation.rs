@@ -10,7 +10,7 @@ use actix_web::{
 use futures_util::TryStreamExt;
 use rustacian_blog_core::{
     AdminAuthError, AiGenerationScope, BlogError, Comment, CommentStatus, ContactMessage, Post,
-    PostSummary, PostVisibility, SearchQuery,
+    PostSummary, PostVisibility,
 };
 use rustacian_blog_frontend::{
     AnalyticsView, CommentView, GeneratedMetadataView, ImageView, PostSummaryView,
@@ -19,6 +19,7 @@ use rustacian_blog_frontend::{
     render_comment_list, render_contact_page, render_en_post_page, render_en_posts_page,
     render_login_page, render_post_page, render_posts_page, render_search_page,
 };
+use rustacian_blog_search::{PostDoc, SearchQuery};
 use std::{fs, path::Path};
 
 use crate::comment_store::new_id;
@@ -387,7 +388,17 @@ async fn regenerate_static_site(
                 posts.push(post);
             }
         }
-        let _ = data.search_index.rebuild(&posts);
+        let post_docs: Vec<PostDoc> = posts
+            .iter()
+            .map(|p| PostDoc {
+                slug: p.slug.clone(),
+                title: p.title.clone(),
+                body_text: sanitize(&p.body_html),
+                tags: p.tags.clone(),
+                date: p.published_at.format("%Y-%m-%d").to_string(),
+            })
+            .collect();
+        let _ = data.search_index.rebuild(&post_docs);
     }
 
     let _ = data
@@ -539,16 +550,22 @@ async fn search_page(query: web::Query<SearchQuery>, data: web::Data<AppState>) 
     let results: Vec<SearchResultView> = if q.is_empty() {
         Vec::new()
     } else {
+        let sq = SearchQuery {
+            q: q.to_owned(),
+            page: 1,
+            per_page: 20,
+        };
         data.search_index
-            .search(q, 20)
+            .search(&sq)
+            .map(|p| p.hits)
             .unwrap_or_default()
             .into_iter()
-            .map(|r| SearchResultView {
-                slug: r.slug,
-                title: r.title,
-                excerpt: r.excerpt,
-                tags: r.tags,
-                date: r.date,
+            .map(|h| SearchResultView {
+                slug: h.slug,
+                title: h.title,
+                excerpt: h.excerpt,
+                tags: h.tags,
+                date: h.date,
             })
             .collect()
     };
@@ -1346,10 +1363,11 @@ mod tests {
     };
 
     use super::*;
+    use rustacian_blog_search::SearchEngine;
+
     use crate::{
         config::AppConfig,
         observability::{AppEvent, ObservabilitySink},
-        search::TantivySearchIndex,
         state::AppState,
     };
     use tempfile::tempdir;
@@ -1503,7 +1521,7 @@ mod tests {
             notification: Arc::new(MockNotificationSink),
             comment_repo: Arc::new(MockCommentRepository),
             contact_repo: Arc::new(MockContactRepository),
-            search_index: Arc::new(TantivySearchIndex::new()),
+            search_index: Arc::new(SearchEngine::new()),
             image_blob: None,
             analytics: None,
             cloudflare: None,
