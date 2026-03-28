@@ -1,5 +1,6 @@
 use leptos::prelude::*;
 use serde::{Deserialize, Serialize};
+use urlencoding::encode as urlencode;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchResultView {
@@ -133,6 +134,8 @@ pub fn render_posts_page(
     page: usize,
     total_pages: usize,
     base_url: &str,
+    query: &str,
+    search_results: Option<Vec<SearchResultView>>,
 ) -> String {
     render_posts_shell(
         "Rustacian Tech Blog",
@@ -144,6 +147,8 @@ pub fn render_posts_page(
         total_pages,
         "/",
         base_url,
+        query,
+        search_results,
     )
 }
 
@@ -164,6 +169,8 @@ pub fn render_tag_posts_page(
         total_pages,
         &format!("/tags/{tag}/"),
         base_url,
+        "",
+        None,
     )
 }
 
@@ -981,6 +988,8 @@ fn render_posts_shell(
     total_pages: usize,
     base_path: &str,
     base_url: &str,
+    query: &str,
+    search_results: Option<Vec<SearchResultView>>,
 ) -> String {
     let ogp = if !base_url.is_empty() {
         let image = format!("{base_url}/images/OGP.png");
@@ -1004,6 +1013,8 @@ fn render_posts_shell(
             page=page
             total_pages=total_pages
             base_path=base_path.to_owned()
+            query=query.to_owned()
+            search_results=search_results
         />
     }
     .to_html();
@@ -1584,6 +1595,8 @@ fn PostsPage(
     page: usize,
     total_pages: usize,
     base_path: String,
+    query: String,
+    search_results: Option<Vec<SearchResultView>>,
 ) -> impl IntoView {
     let post_cards = posts
         .into_iter()
@@ -1625,8 +1638,46 @@ fn PostsPage(
         })
         .collect_view();
 
-    let prev_href = format!("{}?page={}", base_path, page.saturating_sub(1).max(1));
-    let next_href = format!("{}?page={}", base_path, page + 1);
+    // Search result cards (shown when search_results is Some)
+    let search_cards = search_results.as_ref().map(|hits| {
+        hits.iter()
+            .map(|h| {
+                let tags = h
+                    .tags
+                    .iter()
+                    .map(|t| view! { <span class="tag">{t.clone()}</span> })
+                    .collect_view();
+                let slug = h.slug.clone();
+                let title = h.title.clone();
+                let excerpt = h.excerpt.clone();
+                let date = h.date.clone();
+                view! {
+                    <a class="card" href=format!("/p/{slug}")>
+                        <div class="card-body">
+                            <h2 class="card-title">{title}</h2>
+                            <div class="meta">{date}</div>
+                            <p class="card-desc">{excerpt}</p>
+                            <div class="tags">{tags}</div>
+                        </div>
+                    </a>
+                }
+            })
+            .collect_view()
+    });
+
+    // Pagination hrefs — when a query is active, include &q=...
+    let (prev_href, next_href) = if query.is_empty() {
+        (
+            format!("{}?page={}", base_path, page.saturating_sub(1).max(1)),
+            format!("{}?page={}", base_path, page + 1),
+        )
+    } else {
+        let q = urlencode(&query).into_owned();
+        (
+            format!("/?q={q}&page={}", page.saturating_sub(1).max(1)),
+            format!("/?q={q}&page={}", page + 1),
+        )
+    };
     let prev_active = page > 1;
     let next_active = page < total_pages;
 
@@ -1661,6 +1712,27 @@ fn PostsPage(
         .into_any()
     };
 
+    // Main content area: normal posts or search results
+    let content_view = match search_results {
+        None => view! { <section class="posts">{post_cards}</section> }.into_any(),
+        Some(hits) if hits.is_empty() => view! {
+            <p style="color:var(--muted);margin-top:24px;">
+                "「" {query.clone()} "」に一致する記事は見つかりませんでした。"
+            </p>
+        }
+        .into_any(),
+        Some(hits) => {
+            let count = hits.len();
+            view! {
+                <p style="color:var(--muted);font-size:14px;margin-bottom:16px;">
+                    {format!("{count} 件の検索結果")}
+                </p>
+                <section class="posts">{search_cards}</section>
+            }
+            .into_any()
+        }
+    };
+
     view! {
         <main class="shell">
             <section class="hero" style="display:flex;align-items:center;gap:24px;">
@@ -1675,7 +1747,22 @@ fn PostsPage(
                     style="flex-shrink:0;width:120px;height:auto;object-fit:contain;"
                 />
             </section>
-            <section class="posts">{post_cards}</section>
+            <form method="get" action="/" style="display:flex;gap:8px;margin:20px 0;">
+                <input
+                    type="text"
+                    name="q"
+                    value=query
+                    placeholder="キーワード検索 — AND / OR / tags:rust"
+                    style="flex:1;padding:10px 14px;border:1px solid var(--line);border-radius:10px;background:var(--bg);font-family:inherit;font-size:15px;color:var(--text);"
+                />
+                <button
+                    type="submit"
+                    style="padding:10px 20px;background:var(--accent);color:#fff;border:none;border-radius:10px;cursor:pointer;font-family:inherit;font-size:15px;"
+                >
+                    "検索"
+                </button>
+            </form>
+            {content_view}
             <div style="display:flex;align-items:center;justify-content:center;gap:16px;margin-top:32px;">
                 {prev_view}
                 <span style="color:var(--muted);font-size:14px;">{format!("{} / {}", page, total_pages.max(1))}</span>
@@ -1938,8 +2025,9 @@ fn PostPage(post: PostView, comments: Vec<CommentView>) -> impl IntoView {
 #[cfg(test)]
 mod tests {
     use super::{
-        ChartPointView, CommentView, PostSummaryView, PostView, RenderedChartView, TagLinkView,
-        render_post_page, render_tag_posts_page, render_tags_page,
+        ChartPointView, CommentView, PostSummaryView, PostView, RenderedChartView,
+        SearchResultView, TagLinkView, render_post_page, render_posts_page, render_tag_posts_page,
+        render_tags_page,
     };
 
     fn sample_comment(author: &str, content: &str) -> CommentView {
@@ -2080,5 +2168,70 @@ mod tests {
         assert!(tag_html.contains("/tags/rust/"));
         assert!(posts_html.contains("Posts tagged rust"));
         assert!(posts_html.contains("/p/sample"));
+    }
+
+    fn sample_post_summary() -> PostSummaryView {
+        PostSummaryView {
+            title: "Sample Post".to_owned(),
+            slug: "sample-post".to_owned(),
+            published_at: "2026-03-28".to_owned(),
+            updated_at: None,
+            tags: vec!["rust".to_owned()],
+            summary: "summary".to_owned(),
+            description: None,
+            hero_image: None,
+            toc: false,
+            math: false,
+            summary_ai: None,
+            read_minutes: 3,
+            status: "published".to_owned(),
+        }
+    }
+
+    fn sample_search_hit() -> SearchResultView {
+        SearchResultView {
+            slug: "hit-post".to_owned(),
+            title: "Hit Post".to_owned(),
+            excerpt: "excerpt text".to_owned(),
+            tags: vec!["rust".to_owned()],
+            date: "2026-03-28".to_owned(),
+        }
+    }
+
+    #[test]
+    fn posts_page_contains_search_form() {
+        let html = render_posts_page(vec![sample_post_summary()], 1, 1, "", "", None);
+        assert!(html.contains("<form"));
+        assert!(html.contains(r#"name="q""#));
+    }
+
+    #[test]
+    fn posts_page_search_input_retains_query_value() {
+        let html = render_posts_page(vec![], 1, 1, "", "rust", Some(vec![]));
+        assert!(
+            html.contains("rust"),
+            "input value should contain the query"
+        );
+    }
+
+    #[test]
+    fn posts_page_without_query_shows_post_cards() {
+        let html = render_posts_page(vec![sample_post_summary()], 1, 1, "", "", None);
+        assert!(
+            html.contains("/p/sample-post"),
+            "normal post card should appear"
+        );
+    }
+
+    #[test]
+    fn posts_page_with_search_results_shows_count() {
+        let html = render_posts_page(vec![], 1, 1, "", "rust", Some(vec![sample_search_hit()]));
+        assert!(html.contains("1 件の検索結果"));
+    }
+
+    #[test]
+    fn posts_page_with_empty_search_results_shows_not_found() {
+        let html = render_posts_page(vec![], 1, 1, "", "noop", Some(vec![]));
+        assert!(html.contains("見つかりませんでした"));
     }
 }

@@ -161,7 +161,14 @@ impl StaticSiteGenerator for LocalStaticSiteGenerator {
             .await?;
         let mut pages = vec![StaticPage {
             path: "index.html".to_owned(),
-            content: render_posts_page(map_summaries(summaries.clone()), 1, 1, &self.base_url),
+            content: render_posts_page(
+                map_summaries(summaries.clone()),
+                1,
+                1,
+                &self.base_url,
+                "",
+                None,
+            ),
         }];
         let mut assets = self.asset_store.list_global_assets().await?;
         let mut tag_map: BTreeMap<String, Vec<rustacian_blog_core::PostSummary>> = BTreeMap::new();
