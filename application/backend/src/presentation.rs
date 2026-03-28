@@ -2558,7 +2558,7 @@ mod tests {
         // When no blob endpoint is configured the search index is built in-memory
         // from the repository; a subsequent search query must still return results.
         let state = {
-            let mut s = app_state(Arc::new(MockRepository {
+            let s = app_state(Arc::new(MockRepository {
                 list_result: Ok(vec![sample_post().summary()]),
                 get_result: Ok(sample_post()),
             }));

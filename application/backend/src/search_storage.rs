@@ -1,4 +1,3 @@
-use async_trait::async_trait;
 use rustacian_blog_search::IndexStorage;
 
 use crate::blob::AzuriteBlobAdapter;
@@ -8,7 +7,6 @@ pub struct LocalIndexStorage {
     pub path: std::path::PathBuf,
 }
 
-#[async_trait]
 impl IndexStorage for LocalIndexStorage {
     async fn save(&self, data: &[u8]) -> Result<(), String> {
         std::fs::write(&self.path, data).map_err(|e| format!("LocalIndexStorage save: {e}"))
@@ -34,7 +32,6 @@ impl BlobIndexStorage {
     }
 }
 
-#[async_trait]
 impl IndexStorage for BlobIndexStorage {
     async fn save(&self, data: &[u8]) -> Result<(), String> {
         self.adapter

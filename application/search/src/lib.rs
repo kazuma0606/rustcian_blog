@@ -72,9 +72,12 @@ pub struct SearchPage {
 // ---------------------------------------------------------------------------
 
 /// Abstraction over where serialized index data is stored.
+/// `async fn` in trait is allowed here; this trait is used with generics
+/// (not `dyn`), so `Send` bounds are inferred from concrete implementations.
+#[allow(async_fn_in_trait)]
 pub trait IndexStorage: Send + Sync {
-    fn save(&self, data: &[u8]) -> Result<(), String>;
-    fn load(&self) -> Result<Vec<u8>, String>;
+    async fn save(&self, data: &[u8]) -> Result<(), String>;
+    async fn load(&self) -> Result<Vec<u8>, String>;
 }
 
 // ---------------------------------------------------------------------------
@@ -269,21 +272,23 @@ impl SearchEngine {
     }
 
     /// Serialize the indexed documents to the given storage.
-    pub fn save_to(&self, storage: &dyn IndexStorage) -> Result<(), String> {
-        let guard = self
-            .inner
-            .read()
-            .map_err(|e| format!("lock poisoned: {e}"))?;
-        let Some(inner) = guard.as_ref() else {
-            return Ok(());
+    pub async fn save_to<S: IndexStorage>(&self, storage: &S) -> Result<(), String> {
+        let bytes = {
+            let guard = self
+                .inner
+                .read()
+                .map_err(|e| format!("lock poisoned: {e}"))?;
+            let Some(inner) = guard.as_ref() else {
+                return Ok(());
+            };
+            serde_json::to_vec(&inner.docs).map_err(|e| format!("serialize error: {e}"))?
         };
-        let bytes = serde_json::to_vec(&inner.docs).map_err(|e| format!("serialize error: {e}"))?;
-        storage.save(&bytes)
+        storage.save(&bytes).await
     }
 
     /// Restore the index from the given storage.
-    pub fn load_from(&self, storage: &dyn IndexStorage) -> Result<(), String> {
-        let bytes = storage.load()?;
+    pub async fn load_from<S: IndexStorage>(&self, storage: &S) -> Result<(), String> {
+        let bytes = storage.load().await?;
         let docs: Vec<PostDoc> =
             serde_json::from_slice(&bytes).map_err(|e| format!("deserialize error: {e}"))?;
         self.rebuild(&docs)
@@ -352,11 +357,11 @@ mod tests {
     }
 
     impl IndexStorage for MockStorage {
-        fn save(&self, data: &[u8]) -> Result<(), String> {
+        async fn save(&self, data: &[u8]) -> Result<(), String> {
             *self.data.lock().unwrap() = Some(data.to_vec());
             Ok(())
         }
-        fn load(&self) -> Result<Vec<u8>, String> {
+        async fn load(&self) -> Result<Vec<u8>, String> {
             self.data
                 .lock()
                 .unwrap()
@@ -647,8 +652,8 @@ mod tests {
 
     // --- save_to / load_from ---
 
-    #[test]
-    fn save_and_load_produces_same_results() {
+    #[tokio::test]
+    async fn save_and_load_produces_same_results() {
         let engine = SearchEngine::new();
         engine
             .rebuild(&[
@@ -670,10 +675,10 @@ mod tests {
             .unwrap();
 
         let storage = MockStorage::empty();
-        engine.save_to(&storage).unwrap();
+        engine.save_to(&storage).await.unwrap();
 
         let engine2 = SearchEngine::new();
-        engine2.load_from(&storage).unwrap();
+        engine2.load_from(&storage).await.unwrap();
 
         let results = engine2.search(&q("tantivy")).unwrap();
         assert_eq!(results.hits.len(), 1);
