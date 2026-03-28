@@ -10,7 +10,7 @@ use actix_web::{
 use futures_util::TryStreamExt;
 use rustacian_blog_core::{
     AdminAuthError, AiGenerationScope, BlogError, Comment, CommentStatus, ContactMessage, Post,
-    PostSummary, PostVisibility, SearchQuery,
+    PostSummary, PostVisibility,
 };
 use rustacian_blog_frontend::{
     AnalyticsView, CommentView, GeneratedMetadataView, ImageView, PostSummaryView,
@@ -19,6 +19,7 @@ use rustacian_blog_frontend::{
     render_comment_list, render_contact_page, render_en_post_page, render_en_posts_page,
     render_login_page, render_post_page, render_posts_page, render_search_page,
 };
+use rustacian_blog_search::{PostDoc, SearchPage, SearchQuery};
 use std::{fs, path::Path};
 
 use crate::comment_store::new_id;
@@ -116,6 +117,7 @@ const PER_PAGE: usize = 10;
 #[derive(serde::Deserialize, Default)]
 struct PageQuery {
     page: Option<usize>,
+    q: Option<String>,
 }
 
 #[get("/")]
@@ -123,15 +125,61 @@ async fn index_page(
     query: web::Query<PageQuery>,
     data: web::Data<AppState>,
 ) -> Result<HttpResponse> {
+    data.observability.emit(AppEvent::PublicRequestServed {
+        route: "index_page",
+        slug: None,
+    });
+
+    let q = query.q.as_deref().unwrap_or("").trim();
+
+    if !q.is_empty() {
+        // Search mode: delegate to search engine with pagination.
+        let page = query.page.unwrap_or(1).max(1);
+        let sq = SearchQuery {
+            q: q.to_owned(),
+            page,
+            per_page: PER_PAGE,
+        };
+        let result = data.search_index.search(&sq).unwrap_or(SearchPage {
+            hits: Vec::new(),
+            total: 0,
+            total_pages: 0,
+            page,
+            per_page: PER_PAGE,
+        });
+
+        if let Some(analytics) = &data.analytics {
+            analytics.record_search(q.to_owned(), result.hits.len());
+        }
+
+        let search_results: Vec<SearchResultView> = result
+            .hits
+            .into_iter()
+            .map(|h| SearchResultView {
+                slug: h.slug,
+                title: h.title,
+                excerpt: h.excerpt,
+                tags: h.tags,
+                date: h.date,
+            })
+            .collect();
+
+        return Ok(html_response(render_posts_page(
+            Vec::new(),
+            result.page,
+            result.total_pages,
+            &data.config.base_url,
+            q,
+            Some(search_results),
+        )));
+    }
+
+    // Normal mode: paginated post list.
     let all_posts = data
         .list_posts
         .execute()
         .await
         .map_err(internal_app_error)?;
-    data.observability.emit(AppEvent::PublicRequestServed {
-        route: "index_page",
-        slug: None,
-    });
 
     let total = all_posts.len();
     let total_pages = total.div_ceil(PER_PAGE);
@@ -144,6 +192,8 @@ async fn index_page(
         page,
         total_pages,
         &data.config.base_url,
+        "",
+        None,
     )))
 }
 
@@ -165,12 +215,26 @@ async fn post_page(
         analytics.record_session_step(slug.clone(), ip);
     }
 
+    let comments = data
+        .comment_repo
+        .list_comments(&slug, false)
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .map(|c| CommentView {
+            id: c.id,
+            author_name: c.author_name,
+            content: c.content,
+            created_at: c.created_at.format("%Y-%m-%d %H:%M").to_string(),
+        })
+        .collect();
     let en_url = data
         .translator
         .is_some()
         .then(|| format!("/en/posts/{}", &slug));
     Ok(html_response(render_post_page(
         map_post(post),
+        comments,
         en_url.as_deref(),
         &data.config.base_url,
     )))
@@ -263,7 +327,12 @@ async fn admin_preview_placeholder(
         .await
         .map_err(api_app_error)?;
 
-    Ok(html_response(render_post_page(map_post(post), None, "")))
+    Ok(html_response(render_post_page(
+        map_post(post),
+        Vec::new(),
+        None,
+        "",
+    )))
 }
 
 #[get("/posts/{slug}")]
@@ -368,7 +437,17 @@ async fn regenerate_static_site(
                 posts.push(post);
             }
         }
-        let _ = data.search_index.rebuild(&posts);
+        let post_docs: Vec<PostDoc> = posts
+            .iter()
+            .map(|p| PostDoc {
+                slug: p.slug.clone(),
+                title: p.title.clone(),
+                body_text: sanitize(&p.body_html),
+                tags: p.tags.clone(),
+                date: p.published_at.format("%Y-%m-%d").to_string(),
+            })
+            .collect();
+        let _ = data.search_index.rebuild(&post_docs);
     }
 
     let _ = data
@@ -473,7 +552,7 @@ async fn post_comment(
         })
         .await;
     Ok(HttpResponse::SeeOther()
-        .insert_header(("Location", format!("/posts/{slug}/comments")))
+        .insert_header(("Location", format!("/p/{slug}#comments")))
         .finish())
 }
 
@@ -520,16 +599,22 @@ async fn search_page(query: web::Query<SearchQuery>, data: web::Data<AppState>) 
     let results: Vec<SearchResultView> = if q.is_empty() {
         Vec::new()
     } else {
+        let sq = SearchQuery {
+            q: q.to_owned(),
+            page: 1,
+            per_page: 20,
+        };
         data.search_index
-            .search(q, 20)
+            .search(&sq)
+            .map(|p| p.hits)
             .unwrap_or_default()
             .into_iter()
-            .map(|r| SearchResultView {
-                slug: r.slug,
-                title: r.title,
-                excerpt: r.excerpt,
-                tags: r.tags,
-                date: r.date,
+            .map(|h| SearchResultView {
+                slug: h.slug,
+                title: h.title,
+                excerpt: h.excerpt,
+                tags: h.tags,
+                date: h.date,
             })
             .collect()
     };
@@ -1327,10 +1412,11 @@ mod tests {
     };
 
     use super::*;
+    use rustacian_blog_search::SearchEngine;
+
     use crate::{
         config::AppConfig,
         observability::{AppEvent, ObservabilitySink},
-        search::TantivySearchIndex,
         state::AppState,
     };
     use tempfile::tempdir;
@@ -1484,7 +1570,7 @@ mod tests {
             notification: Arc::new(MockNotificationSink),
             comment_repo: Arc::new(MockCommentRepository),
             contact_repo: Arc::new(MockContactRepository),
-            search_index: Arc::new(TantivySearchIndex::new()),
+            search_index: Arc::new(SearchEngine::new()),
             image_blob: None,
             analytics: None,
             cloudflare: None,
@@ -2030,7 +2116,7 @@ mod tests {
                 .headers()
                 .get("location")
                 .and_then(|v| v.to_str().ok()),
-            Some("/posts/sample/comments")
+            Some("/p/sample#comments")
         );
     }
 
@@ -2278,5 +2364,223 @@ mod tests {
         .await;
 
         assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[actix_web::test]
+    async fn post_page_includes_comment_section() {
+        let state = app_state(Arc::new(MockRepository {
+            list_result: Ok(Vec::new()),
+            get_result: Ok(sample_post()),
+        }));
+        let app =
+            test::init_service(App::new().app_data(web::Data::new(state)).configure(routes)).await;
+
+        let response =
+            test::call_service(&app, test::TestRequest::get().uri("/p/sample").to_request()).await;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = test::read_body(response).await;
+        let html = String::from_utf8(body.to_vec()).unwrap();
+        assert!(html.contains("id=\"comments\""));
+        assert!(html.contains("コメントを投稿"));
+    }
+
+    #[actix_web::test]
+    async fn post_page_shows_no_comments_message() {
+        let state = app_state(Arc::new(MockRepository {
+            list_result: Ok(Vec::new()),
+            get_result: Ok(sample_post()),
+        }));
+        let app =
+            test::init_service(App::new().app_data(web::Data::new(state)).configure(routes)).await;
+
+        let response =
+            test::call_service(&app, test::TestRequest::get().uri("/p/sample").to_request()).await;
+
+        let body = test::read_body(response).await;
+        let html = String::from_utf8(body.to_vec()).unwrap();
+        assert!(html.contains("まだコメントはありません"));
+    }
+
+    #[actix_web::test]
+    async fn post_comment_redirects_to_post_page_with_anchor() {
+        let state = app_state(Arc::new(MockRepository {
+            list_result: Ok(Vec::new()),
+            get_result: Ok(sample_post()),
+        }));
+        let app =
+            test::init_service(App::new().app_data(web::Data::new(state)).configure(routes)).await;
+
+        let response = test::call_service(
+            &app,
+            test::TestRequest::post()
+                .uri("/posts/sample/comments")
+                .set_form([("author_name", "Alice"), ("content", "Nice article!")])
+                .to_request(),
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::SEE_OTHER);
+        assert_eq!(
+            response
+                .headers()
+                .get("location")
+                .and_then(|v| v.to_str().ok()),
+            Some("/p/sample#comments")
+        );
+    }
+
+    // --- M2: index search integration tests ---
+
+    #[actix_web::test]
+    async fn index_page_without_query_returns_post_list() {
+        let state = app_state(Arc::new(MockRepository {
+            list_result: Ok(vec![sample_post().summary()]),
+            get_result: Ok(sample_post()),
+        }));
+        let app =
+            test::init_service(App::new().app_data(web::Data::new(state)).configure(routes)).await;
+
+        let response =
+            test::call_service(&app, test::TestRequest::get().uri("/?q=").to_request()).await;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = String::from_utf8(test::read_body(response).await.to_vec()).unwrap();
+        assert!(body.contains("<form"), "search form should be present");
+    }
+
+    #[actix_web::test]
+    async fn index_page_with_query_returns_search_form() {
+        let state = app_state(Arc::new(MockRepository {
+            list_result: Ok(Vec::new()),
+            get_result: Ok(sample_post()),
+        }));
+        let app =
+            test::init_service(App::new().app_data(web::Data::new(state)).configure(routes)).await;
+
+        let response =
+            test::call_service(&app, test::TestRequest::get().uri("/?q=rust").to_request()).await;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = String::from_utf8(test::read_body(response).await.to_vec()).unwrap();
+        assert!(body.contains("<form"), "search form should be present");
+    }
+
+    #[actix_web::test]
+    async fn index_page_query_value_is_retained_in_form() {
+        let state = app_state(Arc::new(MockRepository {
+            list_result: Ok(Vec::new()),
+            get_result: Ok(sample_post()),
+        }));
+        let app =
+            test::init_service(App::new().app_data(web::Data::new(state)).configure(routes)).await;
+
+        let response =
+            test::call_service(&app, test::TestRequest::get().uri("/?q=rust").to_request()).await;
+
+        let body = String::from_utf8(test::read_body(response).await.to_vec()).unwrap();
+        assert!(
+            body.contains("rust"),
+            "query value should appear in the response"
+        );
+    }
+
+    #[actix_web::test]
+    async fn index_page_no_results_shows_not_found_message() {
+        let state = app_state(Arc::new(MockRepository {
+            list_result: Ok(Vec::new()),
+            get_result: Ok(sample_post()),
+        }));
+        let app =
+            test::init_service(App::new().app_data(web::Data::new(state)).configure(routes)).await;
+
+        let response = test::call_service(
+            &app,
+            test::TestRequest::get()
+                .uri("/?q=nonexistent_xyz")
+                .to_request(),
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = String::from_utf8(test::read_body(response).await.to_vec()).unwrap();
+        assert!(body.contains("見つかりませんでした"));
+    }
+
+    #[actix_web::test]
+    async fn index_page_with_page_param_returns_ok() {
+        let state = app_state(Arc::new(MockRepository {
+            list_result: Ok(Vec::new()),
+            get_result: Ok(sample_post()),
+        }));
+        let app =
+            test::init_service(App::new().app_data(web::Data::new(state)).configure(routes)).await;
+
+        let response = test::call_service(
+            &app,
+            test::TestRequest::get().uri("/?q=rust&page=1").to_request(),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let response = test::call_service(
+            &app,
+            test::TestRequest::get()
+                .uri("/?q=rust&page=99")
+                .to_request(),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    // --- M3: blob index fallback integration tests ---
+
+    #[actix_web::test]
+    async fn index_page_returns_ok_when_no_blob_index_configured() {
+        // azurite_blob_endpoint is None in default app_state; the backend should
+        // fall back to in-memory index construction and still serve GET /.
+        let state = app_state(Arc::new(MockRepository {
+            list_result: Ok(vec![sample_post().summary()]),
+            get_result: Ok(sample_post()),
+        }));
+        assert!(state.config.azurite_blob_endpoint.is_none());
+
+        let app =
+            test::init_service(App::new().app_data(web::Data::new(state)).configure(routes)).await;
+
+        let response =
+            test::call_service(&app, test::TestRequest::get().uri("/").to_request()).await;
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[actix_web::test]
+    async fn search_works_after_in_memory_index_fallback() {
+        // When no blob endpoint is configured the search index is built in-memory
+        // from the repository; a subsequent search query must still return results.
+        let state = {
+            let s = app_state(Arc::new(MockRepository {
+                list_result: Ok(vec![sample_post().summary()]),
+                get_result: Ok(sample_post()),
+            }));
+            // Seed the in-memory index exactly as main.rs does at startup.
+            let doc = rustacian_blog_search::PostDoc {
+                slug: "sample".to_owned(),
+                title: "Sample".to_owned(),
+                body_text: "Hello".to_owned(),
+                tags: vec!["rust".to_owned()],
+                date: "2026-03-19".to_owned(),
+            };
+            s.search_index.rebuild(&[doc]).unwrap();
+            s
+        };
+
+        let app =
+            test::init_service(App::new().app_data(web::Data::new(state)).configure(routes)).await;
+
+        let response =
+            test::call_service(&app, test::TestRequest::get().uri("/?q=rust").to_request()).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = String::from_utf8(actix_web::test::read_body(response).await.to_vec()).unwrap();
+        assert!(body.contains("rust"), "expected search results in body");
     }
 }

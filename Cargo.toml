@@ -2,8 +2,10 @@
 members = [
     "application/analytics",
     "application/core",
+    "application/search",
     "application/backend",
     "application/frontend",
+    "application/search-indexer",
 ]
 resolver = "2"
 

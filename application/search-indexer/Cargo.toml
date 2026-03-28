@@ -1,0 +1,17 @@
+[package]
+name = "rustacian_blog_search_indexer"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "search-indexer"
+path = "src/main.rs"
+
+[dependencies]
+ammonia = "4.0.0"
+dotenvy.workspace = true
+tokio.workspace = true
+rustacian_blog_backend = { path = "../backend" }
+rustacian_blog_core = { path = "../core" }
+rustacian_blog_search = { path = "../search" }
